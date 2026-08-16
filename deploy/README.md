@@ -125,6 +125,11 @@ Then **Accounts → Connect an institution**.
   path — the backup job then verifies the escrowed key still matches the running
   one, so it cannot go stale unnoticed.
 
+- **Staleness**: without a public URL there are no webhooks, so the timer is the
+  only thing keeping data fresh. The sidebar shows a warning after two days
+  without a successful sync, and `abacus-sync` exits non-zero when any
+  institution fails, so `OnFailure=` can page you if you want that.
+
 ## Restart policy
 
 Failures are split by whether trying again could possibly help.
@@ -164,7 +169,3 @@ sudo cp deploy/macos/*.plist /Library/LaunchDaemons/
 sudo chown root:wheel /Library/LaunchDaemons/io.github.wt-mm.abacus*.plist
 sudo launchctl bootstrap system /Library/LaunchDaemons/io.github.wt-mm.abacus.plist
 ```
-- **Staleness**: without a public URL there are no webhooks, so the timer is the
-  only thing keeping data fresh. The sidebar shows a warning after two days
-  without a successful sync, and `abacus-sync` exits non-zero when every
-  institution fails, so `OnFailure=` can page you if you want that.
