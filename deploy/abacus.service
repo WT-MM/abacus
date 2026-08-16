@@ -1,0 +1,55 @@
+[Unit]
+Description=Abacus — personal finance ledger
+Documentation=https://github.com/WT-MM/abacus
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=abacus
+Group=abacus
+WorkingDirectory=/opt/abacus
+
+# HOST is not optional. The auth model trusts the Tailscale-User-Login header,
+# which is only safe because nothing but the local `tailscale serve` proxy can
+# reach this port. The app refuses to start if this is anything but loopback.
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+Environment=NODE_ENV=production
+Environment=ABACUS_DB=/var/lib/abacus/abacus.db
+
+# ORIGIN must match the public URL exactly, or SvelteKit rejects every form
+# POST as cross-site and WebAuthn assertions fail against the wrong RP ID.
+Environment=ORIGIN=https://abacus.your-tailnet.ts.net
+Environment=ABACUS_ORIGIN=https://abacus.your-tailnet.ts.net
+Environment=ABACUS_OWNERS=you@example.com
+
+# Secrets are loaded from a root-owned file rather than being written into this
+# unit, which is world-readable.
+EnvironmentFile=/etc/abacus/secrets.env
+
+ExecStart=/usr/bin/node build/index.js
+
+Restart=on-failure
+RestartSec=5
+
+# --------------------------------------------------------------- hardening
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+ReadWritePaths=/var/lib/abacus
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

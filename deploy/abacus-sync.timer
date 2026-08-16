@@ -1,0 +1,18 @@
+[Unit]
+Description=Run the Abacus sync daily
+Documentation=https://github.com/WT-MM/abacus
+
+[Timer]
+# Plaid refreshes institution data on its own schedule, roughly daily. Polling
+# more often mostly re-reads the same rows; polling once a day is what the
+# data actually supports.
+OnCalendar=*-*-* 06:30
+RandomizedDelaySec=1800
+
+# Persistent so a run missed while the machine was asleep happens on the next
+# boot. Without webhooks this timer is the only thing keeping data current, so
+# a silently skipped day is a silently stale ledger.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

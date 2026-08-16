@@ -1,0 +1,21 @@
+{
+	"extends": "./.svelte-kit/tsconfig.json",
+	"compilerOptions": {
+		"allowJs": true,
+		"checkJs": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"sourceMap": true,
+		"strict": true,
+		"moduleResolution": "bundler",
+		"target": "es2023",
+
+		// Relative imports carry explicit .ts extensions so that scripts/sync.ts
+		// can import the server tree directly under bare Node, which requires
+		// them. Vite resolves them the same way.
+		"allowImportingTsExtensions": true,
+		"noEmit": true
+	}
+}

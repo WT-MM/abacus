@@ -1,0 +1,215 @@
+/*
+ * Abacus — ledger paper, re-lit.
+ *
+ * The one rule that governs everything below: observed values are ink,
+ * inferred values are brass. Forecasts, run-rate projections and anything else
+ * the app modelled rather than received carry `.is-projected`, so a glance at
+ * the page separates fact from estimate. Confusing the two is the failure mode
+ * that actually costs money.
+ */
+
+:root {
+	--paper: #f6f7f4;
+	--surface: #ffffff;
+	--surface-sunk: #f0f2ee;
+	--ink: #141a21;
+	--slate: #5c6773;
+	--faint: #8a94a0;
+	--rule: #dde1dc;
+	--rule-strong: #b9c0b8;
+
+	--verdigris: #1f8a72;
+	--iron: #b24a31;
+	--brass: #8a6714;
+	--brass-wash: rgba(138, 103, 20, 0.09);
+	--band: rgba(20, 26, 33, 0.022);
+
+	--font-display: 'Fraunces Variable', 'Fraunces', Georgia, serif;
+	--font-ui: 'Inter Tight Variable', 'Inter Tight', system-ui, -apple-system, sans-serif;
+	--font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+	--rail: 15rem;
+	--gutter: clamp(1rem, 3vw, 2.25rem);
+	--radius: 3px;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--paper: #0e1218;
+		--surface: #151b23;
+		--surface-sunk: #10161d;
+		--ink: #e6ecf2;
+		--slate: #8b98a7;
+		--faint: #67737f;
+		--rule: #232c38;
+		--rule-strong: #3a4756;
+
+		--verdigris: #4fbfa1;
+		--iron: #e2795d;
+		--brass: #d9ac4a;
+		--brass-wash: rgba(217, 172, 74, 0.1);
+		--band: rgba(230, 236, 242, 0.022);
+	}
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	-webkit-text-size-adjust: 100%;
+}
+
+body {
+	margin: 0;
+	background: var(--paper);
+	color: var(--ink);
+	font-family: var(--font-ui);
+	font-size: 15px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p,
+figure {
+	margin: 0;
+}
+
+a {
+	color: inherit;
+	text-decoration-color: var(--rule-strong);
+	text-underline-offset: 2px;
+}
+
+button {
+	font: inherit;
+	color: inherit;
+}
+
+:focus-visible {
+	outline: 2px solid var(--verdigris);
+	outline-offset: 2px;
+	border-radius: 2px;
+}
+
+/* ------------------------------------------------------------- primitives */
+
+/* Every figure in the app is tabular so columns align down the page. */
+.num {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-feature-settings: 'zero' 1;
+	letter-spacing: -0.01em;
+}
+
+.pos {
+	color: var(--verdigris);
+}
+.neg {
+	color: var(--iron);
+}
+.muted {
+	color: var(--slate);
+}
+.faint {
+	color: var(--faint);
+}
+
+/* The signature: inferred values are struck in brass and lightly hatched. */
+.is-projected {
+	color: var(--brass);
+	background-image: repeating-linear-gradient(
+		135deg,
+		var(--brass-wash) 0 2px,
+		transparent 2px 5px
+	);
+	border-radius: 2px;
+}
+
+/* An eyebrow, set in the utility face. Structural, not decorative. */
+.eyebrow {
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	font-weight: 500;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--faint);
+}
+
+/* The accountant's double rule, used only beneath a genuine total. */
+.rule-double {
+	border-top: 1px solid var(--rule-strong);
+	box-shadow: 0 2px 0 -1px var(--rule-strong);
+}
+
+.card {
+	background: var(--surface);
+	border: 1px solid var(--rule);
+	border-radius: var(--radius);
+}
+
+.btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.45rem 0.85rem;
+	background: var(--surface);
+	border: 1px solid var(--rule-strong);
+	border-radius: var(--radius);
+	font-size: 0.875rem;
+	font-weight: 500;
+	cursor: pointer;
+	transition: background 120ms ease, border-color 120ms ease;
+}
+
+.btn:hover {
+	background: var(--surface-sunk);
+	border-color: var(--slate);
+}
+
+.btn-primary {
+	background: var(--verdigris);
+	border-color: var(--verdigris);
+	color: #fff;
+}
+
+.btn-primary:hover {
+	background: var(--verdigris);
+	filter: brightness(1.08);
+}
+
+@media (prefers-color-scheme: dark) {
+	.btn-primary {
+		color: #08130f;
+	}
+}
+
+.btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+input,
+select,
+textarea {
+	font: inherit;
+	color: inherit;
+	background: var(--surface);
+	border: 1px solid var(--rule-strong);
+	border-radius: var(--radius);
+	padding: 0.4rem 0.55rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.001ms !important;
+		transition-duration: 0.001ms !important;
+	}
+}

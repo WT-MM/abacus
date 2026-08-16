@@ -1,0 +1,33 @@
+[Unit]
+Description=Abacus daily Plaid sync
+Documentation=https://github.com/WT-MM/abacus
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=abacus
+Group=abacus
+WorkingDirectory=/opt/abacus
+
+Environment=NODE_ENV=production
+Environment=ABACUS_DB=/var/lib/abacus/abacus.db
+EnvironmentFile=/etc/abacus/secrets.env
+
+# Runs as its own process, not inside the web server: node:sqlite is
+# synchronous, so a sync executed in the request loop would freeze the UI for
+# its whole duration. Node 26 strips the types, so there is no build step.
+ExecStart=/usr/bin/node scripts/sync.ts
+
+# Plaid can be slow when an institution is struggling; give it room but do not
+# let a wedged run overlap the next day's.
+TimeoutStartSec=900
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/abacus
+
+[Install]
+WantedBy=multi-user.target
