@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { json, error, type RequestHandler } from '@sveltejs/kit';
 import { db } from '$lib/server/db.ts';
 import { config, plaidConfigured } from '$lib/server/config.ts';
@@ -5,6 +6,18 @@ import * as plaid from '$lib/server/plaid.ts';
 import { accessTokenOf, storeAccessToken, type ItemRow } from '$lib/server/sync.ts';
 
 const REDIRECT_URI = () => `${config.origin}/link/oauth`;
+
+/**
+ * Plaid rejects a `client_user_id` that carries PII, and the login this app
+ * authenticates with is a Tailscale identity — always an email address — so
+ * passing it straight through fails every link attempt with INVALID_FIELD.
+ *
+ * Hashing rather than randomising is deliberate: Plaid ties returning-user
+ * behaviour to this value, so it has to stay stable for the same owner across
+ * Link sessions.
+ */
+const clientUserId = (login: string) =>
+	createHash('sha256').update(login).digest('hex').slice(0, 32);
 
 export const POST: RequestHandler = async ({ params, request, locals }) => {
 	if (!locals.auth.verified) throw error(404, 'Not found');
@@ -27,7 +40,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 			}
 
 			const token = await plaid.createLinkToken({
-				userId: locals.auth.login ?? 'owner',
+				userId: clientUserId(locals.auth.login ?? 'owner'),
 				accessToken,
 				redirectUri: REDIRECT_URI()
 			});
