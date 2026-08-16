@@ -13,19 +13,14 @@
 	const surplus = $derived(data.monthlyIncomeCents - data.monthlyExpenseCents);
 
 	const SOURCE_LABEL = {
-		plan: 'your figure',
+		template: 'your master budget',
 		history: 'observed history',
-		budget: 'the budget sheet'
+		budget: "this month's sheet"
 	} as const;
 
 	const horizonHref = (years: number) => `/forecast?years=${years}&step=${data.step}`;
 	const stepHref = (step: string) => `/forecast?years=${data.years}&step=${step}`;
 
-	// Blank inputs mean "derive it", so an unset override must render empty
-	// rather than as 0 — which would silently pin the projection to zero income.
-	const planIncome = $derived(data.plan.incomeCents === null ? '' : data.plan.incomeCents / 100);
-	const planExpense = $derived(data.plan.expenseCents === null ? '' : data.plan.expenseCents / 100);
-	const hasPlan = $derived(data.plan.incomeCents !== null || data.plan.expenseCents !== null);
 </script>
 
 <svelte:head><title>Forecast · Abacus</title></svelte:head>
@@ -52,14 +47,17 @@
 </p>
 
 <p class="basis">
-	Income comes from <b>{SOURCE_LABEL[data.basis.income]}</b>, spending from
-	<b>{SOURCE_LABEL[data.basis.expense]}</b>.
-	{#if data.basis.income === 'history' || data.basis.expense === 'history'}
-		Observed figures average the last complete months and exclude the current one — it is only
-		part-way through, and a half month holds a whole rent payment but only half the groceries.
-	{/if}
-	{#if data.basis.income === 'budget' || data.basis.expense === 'budget'}
-		Nothing has been observed yet, so the budget sheet is standing in.
+	Running on <b>{SOURCE_LABEL[data.basis.income]}</b>.
+	{#if data.basis.income === 'template'}
+		<a href="/budget?month=template">Edit the master budget</a> to change the projection — every new
+		month starts from it too.
+	{:else if data.basis.income === 'history'}
+		Averaged over the last complete months, excluding the current one: it is only part-way through,
+		and a half month holds a whole rent payment but only half the groceries.
+		<a href="/budget?month=template">Set a master budget</a> to project from intent instead.
+	{:else}
+		Nothing observed yet, so this month's sheet is standing in.
+		<a href="/budget?month=template">Set a master budget</a> to make this deliberate.
 	{/if}
 </p>
 
@@ -84,10 +82,31 @@
 	</article>
 </section>
 
+{#if data.budgetedInvestmentCents}
+	<p class="basis">
+		Your master budget puts <Money cents={data.budgetedInvestmentCents} exact={false} /> a month into
+		investments, so that is what the projection moves across — the Assumptions figure below is
+		ignored while a budgeted amount exists.
+	</p>
+{/if}
+
+{#if data.observed}
+	<p class="observed">
+		<span>
+			For comparison, the last {data.observed.monthsUsed}
+			complete {data.observed.monthsUsed === 1 ? 'month' : 'months'} actually averaged
+			<Money cents={data.observed.incomeCents} exact={false} /> in and
+			<Money cents={data.observed.expenseCents} exact={false} /> out —
+			<Money cents={data.observed.incomeCents - data.observed.expenseCents} exact={false} signed />
+			a month.
+		</span>
+	</p>
+{/if}
+
 {#if surplus < 0}
 	<p class="banner bad">
 		Spending currently outruns income by {money(Math.abs(surplus), { exact: false })} a month, so the
-		projection below trends down. Change the budget sheet, or state your own figures below.
+		projection below trends down. Adjust the <a href="/budget?month=template">master budget</a>.
 	</p>
 {/if}
 
@@ -126,59 +145,6 @@
 				{/each}
 			</tbody>
 		</table>
-	</div>
-</section>
-
-<section class="card panel">
-	<header class="panel-head">
-		<h2>Your figures</h2>
-		{#if hasPlan}
-			<form method="POST" action="?/clearPlan" use:enhance>
-				<button class="linkish" type="submit">Go back to observed</button>
-			</form>
-		{/if}
-	</header>
-
-	<div class="pad">
-		{#if form?.planSaved}<p class="banner ok" role="status">Saved.</p>{/if}
-		{#if form?.planCleared}<p class="banner ok" role="status">Back to observed figures.</p>{/if}
-
-		<p class="note">
-			State a monthly income or spending figure to override what the data implies. Useful when you
-			know something the transactions do not yet — a raise, a lease ending — since an average takes
-			months to catch up. Leave a field blank to keep deriving it.
-		</p>
-
-		<form method="POST" action="?/plan" use:enhance class="grid">
-			<label>
-				<span class="eyebrow">Monthly income · $</span>
-				<input
-					name="planIncome"
-					type="number"
-					step="1"
-					min="0"
-					value={planIncome}
-					placeholder={String(Math.round(data.monthlyIncomeCents / 100))}
-				/>
-			</label>
-			<label>
-				<span class="eyebrow">Monthly spending · $</span>
-				<input
-					name="planExpense"
-					type="number"
-					step="1"
-					min="0"
-					value={planExpense}
-					placeholder={String(Math.round(data.monthlyExpenseCents / 100))}
-				/>
-			</label>
-			<button class="btn btn-primary" type="submit">Use these</button>
-		</form>
-
-		<p class="note">
-			The greyed numbers are what is being used now, so an empty field shows what you would be
-			overriding.
-		</p>
 	</div>
 </section>
 
@@ -337,20 +303,6 @@
 		box-shadow: inset 2px 0 0 var(--verdigris);
 	}
 
-	.linkish {
-		background: none;
-		border: 0;
-		padding: 0;
-		color: var(--slate);
-		font-size: 0.8125rem;
-		cursor: pointer;
-		text-decoration: underline;
-		text-underline-offset: 2px;
-	}
-
-	.linkish:hover {
-		color: var(--verdigris);
-	}
 
 	.head {
 		display: flex;
@@ -363,6 +315,17 @@
 	.basis b {
 		font-weight: 500;
 		color: var(--ink);
+	}
+
+	/* What actually happened, set apart from what the projection assumes. A
+	   budget the spending has drifted from produces a confident, wrong line. */
+	.observed {
+		max-width: 68ch;
+		margin-bottom: 1.25rem;
+		padding-left: 0.7rem;
+		border-left: 2px solid var(--rule-strong);
+		color: var(--slate);
+		font-size: 0.8125rem;
 	}
 
 	table {

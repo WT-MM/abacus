@@ -12,7 +12,7 @@
 	let draft = $state('');
 	let inputEl = $state<HTMLInputElement | null>(null);
 
-	const monthName = $derived(monthLabel(data.grid.month));
+	const monthName = $derived(data.template ? 'Master budget' : monthLabel(data.grid.month));
 
 	// Rows keep their sheet position when grouped, so B7 in a formula and row 7
 	// on screen are always the same row.
@@ -69,20 +69,42 @@
 
 <header class="head">
 	<div>
-		<p class="eyebrow">Budget sheet</p>
+		<p class="eyebrow">{data.template ? 'Template · every new month starts here' : 'Budget sheet'}</p>
 		<h1>{monthName}</h1>
 	</div>
 
 	<div class="controls">
-		<a class="btn" href="/budget?month={data.prevMonth}" aria-label="Previous month">←</a>
-		{#if !data.isCurrent}<a class="btn" href="/budget">Today</a>{/if}
-		<a class="btn" href="/budget?month={data.nextMonth}" aria-label="Next month">→</a>
-		<form method="POST" action="?/copyForward" use:enhance>
-			<input type="hidden" name="month" value={data.grid.month} />
-			<button class="btn" type="submit">Copy last month</button>
-		</form>
+		{#if data.template}
+			<a class="btn" href="/budget">Back to this month</a>
+		{:else}
+			<a class="btn" href="/budget?month={data.prevMonth}" aria-label="Previous month">←</a>
+			{#if !data.isCurrent}<a class="btn" href="/budget">Today</a>{/if}
+			<a class="btn" href="/budget?month={data.nextMonth}" aria-label="Next month">→</a>
+			<form method="POST" action="?/copyForward" use:enhance>
+				<input type="hidden" name="month" value={data.grid.month} />
+				<button class="btn" type="submit">Copy last month</button>
+			</form>
+			<form method="POST" action="?/saveAsTemplate" use:enhance>
+				<input type="hidden" name="month" value={data.grid.month} />
+				<button class="btn" type="submit">Save as master</button>
+			</form>
+			<a class="btn" href="/budget?month={data.templateMonth}">Master budget</a>
+		{/if}
 	</div>
 </header>
+
+{#if data.template}
+	<p class="hint template-note">
+		This sheet is not a month. It is the standing budget that any month you have not yet touched
+		inherits, and what the <a href="/forecast">forecast</a> projects from. Actual and Left are blank
+		here because there is nothing to compare against — only column B applies.
+	</p>
+{:else if data.seeded}
+	<p class="hint seeded-note">
+		Started from your master budget ({data.seeded} {data.seeded === 1 ? 'row' : 'rows'}). Edits here
+		affect only {monthName}.
+	</p>
+{/if}
 
 <p class="hint">
 	Type a number, or a formula starting with <code>=</code>. Cells can reference each other:
@@ -159,7 +181,9 @@
 						<td class="r">
 							<!-- An Actual figure with no way to see what is behind it is just a
 							     number to be trusted. This links to exactly those rows. -->
-							{#if row.actualCents !== 0}
+							{#if data.template}
+								<span class="faint">—</span>
+							{:else if row.actualCents !== 0}
 								<a
 									class="drill"
 									href="/transactions?category={row.categoryId}&month={data.grid.month}"
@@ -172,14 +196,22 @@
 							{/if}
 						</td>
 						<td class="r">
-							<Money cents={row.remainingCents} exact={false} signed invert={row.kind === 'income'} />
+							{#if data.template}
+								<span class="faint">—</span>
+							{:else}
+								<Money cents={row.remainingCents} exact={false} signed invert={row.kind === 'income'} />
+							{/if}
 						</td>
 						<td class="r">
-							<Money
-								cents={row.projectedCents}
-								exact={false}
-								projected={row.projectedCents !== row.actualCents}
-							/>
+							{#if data.template}
+								<span class="faint">—</span>
+							{:else}
+								<Money
+									cents={row.projectedCents}
+									exact={false}
+									projected={row.projectedCents !== row.actualCents}
+								/>
+							{/if}
 						</td>
 					</tr>
 				{/each}
@@ -241,6 +273,16 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.4rem;
+	}
+
+	.template-note,
+	.seeded-note {
+		padding-left: 0.7rem;
+		border-left: 2px solid var(--brass);
+	}
+
+	.seeded-note {
+		border-left-color: var(--verdigris);
 	}
 
 	.hint {
