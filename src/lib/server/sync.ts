@@ -21,6 +21,14 @@ export type ItemRow = {
 
 const TOKEN_AAD = 'plaid.access_token';
 
+/**
+ * Stand-in name recorded when an Item is linked. The link step writes the token
+ * before naming the institution, so that a transient failure cannot strand a
+ * token whose Item slot has already been spent; the name is backfilled here on
+ * the next sync.
+ */
+export const UNNAMED_INSTITUTION = 'Linked institution';
+
 export function accessTokenOf(item: ItemRow): string {
 	return decrypt(item.access_token_ct, TOKEN_AAD);
 }
@@ -327,6 +335,21 @@ async function syncItem(item: ItemRow): Promise<ItemResult> {
 			changed: 0,
 			message: `${itemError.error_code}: reconnect required`
 		};
+	}
+
+	// Name an Item that was linked while Plaid was unreachable for the lookup.
+	// Without this it stays "Linked institution" permanently, since nothing else
+	// revisits the name once the row exists.
+	if (item.institution_name === UNNAMED_INSTITUTION && status.item.institution_id) {
+		try {
+			const { institution } = await plaid.getInstitution(status.item.institution_id);
+			conn
+				.prepare('UPDATE items SET institution_id = ?, institution_name = ? WHERE id = ?')
+				.run(status.item.institution_id, institution.name, item.id);
+			item.institution_name = institution.name;
+		} catch {
+			// Cosmetic; try again next run.
+		}
 	}
 
 	const { accounts } = await plaid.getAccounts(token);

@@ -16,8 +16,16 @@ export function db(): DatabaseSync {
 	// Without it the two processes block each other and the UI stalls mid-sync.
 	conn.exec('PRAGMA journal_mode = WAL');
 	conn.exec('PRAGMA foreign_keys = ON');
-	conn.exec('PRAGMA busy_timeout = 5000');
-	conn.exec('PRAGMA synchronous = NORMAL');
+	// Generous, because the web process and the nightly sync process share this
+	// file. A SQLITE_BUSY on the write that stores a freshly exchanged Plaid
+	// access token would spend a lifetime Item slot for nothing.
+	conn.exec('PRAGMA busy_timeout = 30000');
+
+	// FULL, not NORMAL. Under WAL, NORMAL does not fsync on commit, so a power
+	// loss can roll back an acknowledged write — including the access token
+	// whose Item slot has already been consumed and cannot be reclaimed. This
+	// app commits a few times a day; the fsync cost is irrelevant next to that.
+	conn.exec('PRAGMA synchronous = FULL');
 
 	conn.exec(SCHEMA);
 

@@ -179,12 +179,22 @@ PLAID_SECRET=...
 PLAID_ENV=production
 ```
 
-Verify without revealing values:
+Verify without revealing values. **Counting lines is not enough** — an empty or
+truncated key still has an `=` on its line, and the app will start, pass every
+check in step 8, and only fail when a bank is linked. Check that the key
+actually decodes to 32 bytes:
 
 ```sh
-sudo grep -c '=' /etc/abacus/secrets.env      # expect 4 (or 1 if Plaid deferred)
-sudo stat -c '%a %U' /etc/abacus/secrets.env  # expect 600 root
+sudo grep '^ABACUS_ENCRYPTION_KEY=' /etc/abacus/secrets.env \
+  | cut -d= -f2- | base64 -d 2>/dev/null | wc -c   # MUST print 32
+
+sudo grep -c '=' /etc/abacus/secrets.env           # expect 4 (or 1 if Plaid deferred)
+sudo stat -c '%a %U' /etc/abacus/secrets.env       # expect 600 root
 ```
+
+If the byte count is not 32, regenerate the key before continuing. The service
+refuses to start on a bad key, so a wrong value here surfaces in step 7 as a
+failed start rather than silently later.
 
 **Tell the human to back this key up separately from the database.** Losing it
 means relinking every institution, which consumes Plaid Item slots that are
@@ -307,6 +317,11 @@ journalctl -u abacus-sync -n 40 --no-pager
 Expect one `ok <institution> <n> records` line per institution and a final
 `sync ok`. A `FAIL` line names the institution and reason.
 
+The unit exits non-zero when **any** institution fails, not only when all of
+them do — a partially stale ledger is exactly the case that would otherwise go
+unnoticed. That makes `systemctl status abacus-sync` a meaningful health check,
+and lets the human add an `OnFailure=` alert later if they want one.
+
 Tell the human the net worth chart will show a single point at first. Plaid
 reports a current balance, not a history, so the trend is built from snapshots
 taken at each sync and cannot be backfilled.
@@ -318,6 +333,8 @@ taken at each sync and cannot be backfilled.
 | Symptom | Cause |
 |---|---|
 | Service exits with "Refusing to start: HOST is …" | The loopback guard. `HOST=127.0.0.1` is missing from the unit. Fix the unit; never the guard. |
+| Service exits with "must decode to 32 bytes" | `ABACUS_ENCRYPTION_KEY` is empty or truncated. Regenerate it. |
+| Service exits with "does not match the key this database was created with" | The key changed after the database was created. **Restore the original key.** Do not relink institutions to work around this — relinking permanently consumes Plaid Item slots. |
 | Owner request returns 404 | `ABACUS_OWNERS` does not exactly match the Tailscale login. |
 | Every form POST rejected as cross-site | `ORIGIN` does not match the URL the browser is using. |
 | Passkey registration fails with an opaque error | `ABACUS_ORIGIN` wrong, so the WebAuthn RP ID is wrong. |

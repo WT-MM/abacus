@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A superseded run on the same branch has nothing left to tell us.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 24 is the floor a deployment is likely to have; 26 is what the
+        # reference install runs. node:sqlite and native type stripping behave
+        # differently across majors, so both are exercised.
+        node: ['24', '26']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Types
+        run: pnpm check
+
+      - name: Build
+        run: pnpm build
+
+      # The daily sync runs exactly this, with no build step and no flags. If a
+      # runtime cannot strip these types the web app still works and the data
+      # silently never updates — the failure most likely to go unnoticed. The
+      # invocation here deliberately matches deploy/abacus-sync.service; adding
+      # a flag CI-side would hide precisely the incompatibility being tested.
+      - name: Sync entrypoint runs under bare node
+        run: node --check scripts/sync.ts
+
+      # The auth model rests on the app being unreachable except through the
+      # local proxy, and on the encryption key matching the database. Both
+      # guards must *stop the process* — asserting on log text alone would pass
+      # for a process that printed the message and then served traffic anyway.
+      - name: Boot guards refuse bad configuration
+        env:
+          NODE_ENV: production
+          ORIGIN: http://127.0.0.1:3000
+          ABACUS_OWNERS: ci@example.com
+        run: |
+          set -euo pipefail
+          good=$(node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))")
+
+          expect_refusal() {
+            local label="$1" want="$2"; shift 2
+            set +e
+            env "$@" timeout 25 node build/index.js > guard.log 2>&1
+            local code=$?
+            set -e
+            if [ "$code" -eq 0 ]; then
+              echo "::error::$label — process exited 0; it should have refused to start"; cat guard.log; exit 1
+            fi
+            if [ "$code" -eq 124 ]; then
+              echo "::error::$label — process kept running; it should have refused to start"; cat guard.log; exit 1
+            fi
+            grep -q "$want" guard.log || {
+              echo "::error::$label — exited $code but without the expected message"; cat guard.log; exit 1; }
+            echo "ok: $label (exit $code)"
+          }
+
+          expect_refusal "public bind" "Refusing to start" \
+            ABACUS_DB=/tmp/g1.db ABACUS_ENCRYPTION_KEY="$good" HOST=0.0.0.0 PORT=3101
+          expect_refusal "missing key" "Missing required environment variable" \
+            ABACUS_DB=/tmp/g2.db HOST=127.0.0.1 PORT=3102
+          expect_refusal "short key" "must decode to 32 bytes" \
+            ABACUS_DB=/tmp/g3.db ABACUS_ENCRYPTION_KEY=dG9vLXNob3J0 HOST=127.0.0.1 PORT=3103
+
+      # A key of the right shape but the wrong value passes length validation
+      # while leaving every stored Plaid token undecryptable. The natural
+      # response to that is to relink, which permanently spends Item slots — so
+      # it has to be caught at boot.
+      - name: Rejects a valid-length key that does not match the database
+        env:
+          NODE_ENV: production
+          ORIGIN: http://127.0.0.1:3000
+          ABACUS_OWNERS: ci@example.com
+          HOST: 127.0.0.1
+          ABACUS_DB: /tmp/keyswap.db
+        run: |
+          set -euo pipefail
+          first=$(node -e "console.log(Buffer.alloc(32,1).toString('base64'))")
+          second=$(node -e "console.log(Buffer.alloc(32,2).toString('base64'))")
+
+          # First boot adopts the key, so it must come up and serve.
+          ABACUS_ENCRYPTION_KEY="$first" PORT=3110 timeout 25 node build/index.js > first.log 2>&1 &
+          pid=$!
+          for _ in $(seq 1 20); do
+            curl -fsS -o /dev/null http://127.0.0.1:3110/ 2>/dev/null && break || sleep 1
+          done
+          curl -s -o /dev/null -w '%{http_code}\n' \
+            -H 'Tailscale-User-Login: ci@example.com' http://127.0.0.1:3110/ | grep -qE '303' \
+            || { echo "::error::first boot did not serve"; cat first.log; kill $pid; exit 1; }
+          kill $pid; wait $pid 2>/dev/null || true
+
+          # Second boot with a different 32-byte key must refuse.
+          set +e
+          ABACUS_ENCRYPTION_KEY="$second" PORT=3111 timeout 25 node build/index.js > second.log 2>&1
+          code=$?
+          set -e
+          [ "$code" -ne 0 ] && [ "$code" -ne 124 ] \
+            || { echo "::error::key swap was not rejected (exit $code)"; cat second.log; exit 1; }
+          grep -q "does not match the key this database was created with" second.log \
+            || { echo "::error::wrong rejection message"; cat second.log; exit 1; }
+          echo "ok: key swap rejected"

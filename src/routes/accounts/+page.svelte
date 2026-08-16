@@ -7,10 +7,31 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
+	/** The slice of Plaid's Link callback metadata this app uses. */
+	type LinkMetadata = { institution?: { institution_id?: string; name?: string } | null };
+
 	let linking = $state(false);
 	let syncing = $state(false);
 	let notice = $state('');
 	let problem = $state('');
+
+	/**
+	 * A failed call must never land in `notice`, which renders as a green
+	 * success banner — a 502 shown that way reads as a working connection.
+	 */
+	async function post(url: string, payload: unknown) {
+		const res = await fetch(url, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(payload)
+		});
+		const body = await res.json().catch(() => ({}));
+		return {
+			ok: res.ok && body.ok !== false,
+			body,
+			message: body.message ?? `Request failed (${res.status})`
+		};
+	}
 
 	/** Plaid Link is loaded on demand, not on every page view. */
 	async function loadLinkScript(): Promise<void> {
@@ -47,21 +68,38 @@
 			// @ts-expect-error injected by the Plaid script
 			const handler = window.Plaid.create({
 				token: linkToken,
-				onSuccess: async (publicToken: string) => {
-					// Update mode returns no new public token: the existing Item was
-					// repaired in place and there is nothing to exchange.
-					if (itemId) {
-						notice = 'Connection repaired.';
-					} else {
-						const ex = await fetch('/api/link/exchange', {
-							method: 'POST',
-							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({ publicToken })
-						});
-						const body = await ex.json();
-						notice = ex.ok ? `Connected ${body.institution}. Run a sync to pull data.` : body.message;
+				// Plaid does not await this callback, so anything thrown inside it
+				// becomes an unhandled rejection and the user sees nothing at all.
+				onSuccess: async (publicToken: string, metadata: LinkMetadata) => {
+					try {
+						// Update mode repairs the existing Item in place and returns no
+						// usable public token, so there is nothing to exchange — but the
+						// server still has to re-check the item, or its row stays
+						// 'needs_repair' and this page keeps offering Reconnect.
+						const res = itemId
+							? await post('/api/link/repaired', { itemId })
+							: await post('/api/link/exchange', {
+									publicToken,
+									// Lets the server refuse a duplicate before exchanging,
+									// which is the only point at which a slot can still be saved.
+									institutionId: metadata?.institution?.institution_id ?? null
+								});
+
+						if (!res.ok) {
+							problem = res.message;
+						} else if (itemId) {
+							problem = '';
+							notice = 'Connection repaired.';
+						} else {
+							problem = '';
+							notice = `Connected ${res.body.institution}. Run a sync to pull data.`;
+						}
+						await invalidateAll();
+					} catch (err) {
+						problem = err instanceof Error ? err.message : 'Could not finish connecting';
+					} finally {
+						linking = false;
 					}
-					await invalidateAll();
 				},
 				onExit: (err: { display_message?: string } | null) => {
 					if (err?.display_message) problem = err.display_message;
@@ -69,9 +107,10 @@
 				}
 			});
 			handler.open();
+			// `linking` stays true while Plaid's modal is open; onSuccess and onExit
+			// clear it. Clearing it here would show the button as idle mid-flow.
 		} catch (err) {
 			problem = err instanceof Error ? err.message : 'Could not open Plaid Link';
-		} finally {
 			linking = false;
 		}
 	}
