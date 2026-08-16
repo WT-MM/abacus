@@ -50,7 +50,54 @@ export function db(): DatabaseSync {
 
 	handle = conn;
 	seedCategories(conn);
+	repair(conn);
 	return conn;
+}
+
+/**
+ * One-time corrections to data already on disk.
+ *
+ * Written as raw SQL rather than going through categorize.ts, which imports
+ * this module — routing it that way would make an import cycle.
+ *
+ * Each repair records itself in meta so it runs once. They are cheap and
+ * idempotent, but re-running them would undo any hand-categorisation made
+ * afterwards, which is why they are gated rather than run every boot.
+ */
+function repair(conn: DatabaseSync): void {
+	const done = (key: string) =>
+		Boolean(conn.prepare('SELECT 1 FROM meta WHERE key = ?').get(`repair.${key}`));
+	const mark = (key: string) =>
+		conn.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(`repair.${key}`, 'done');
+
+	// Credit-card payoffs were classified as spending, so everything bought on
+	// credit was counted twice: once at the till and once when the card was
+	// paid. Rows categorised by hand are left alone.
+	if (!done('card-payments-are-transfers')) {
+		conn
+			.prepare(
+				`UPDATE transactions
+				    SET category_id = (SELECT id FROM categories WHERE name = 'Transfer'),
+				        is_transfer = 1
+				  WHERE plaid_category = 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT'
+				    AND category_locked = 0`
+			)
+			.run();
+		mark('card-payments-are-transfers');
+	}
+
+	// is_transfer used to be derived from Plaid's primary category alone, so a
+	// transaction sitting in a transfer category could still be counted.
+	if (!done('transfer-flag-follows-category')) {
+		conn
+			.prepare(
+				`UPDATE transactions SET is_transfer = 1
+				  WHERE is_transfer = 0
+				    AND category_id IN (SELECT id FROM categories WHERE kind = 'transfer')`
+			)
+			.run();
+		mark('transfer-flag-follows-category');
+	}
 }
 
 /** Wrap a unit of work in a transaction; rolls back on any throw. */

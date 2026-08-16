@@ -1,6 +1,6 @@
 import { db, tx, getMeta, setMeta } from './db.ts';
 import { decrypt, encrypt, redact } from './crypto.ts';
-import { classify, categoryId } from './categorize.ts';
+import { classify, categoryId, isTransferCategory } from './categorize.ts';
 import * as plaid from './plaid.ts';
 import { PlaidError, type PlaidAccount, type PlaidTransaction, type SyncPage } from './plaid.ts';
 
@@ -113,6 +113,7 @@ function writeTransaction(accountId: number, t: PlaidTransaction): void {
 	const amount = -Math.round(t.amount * 100);
 	const primary = t.personal_finance_category?.primary ?? null;
 	const detailed = t.personal_finance_category?.detailed ?? null;
+	const category = classify({ description: t.name, merchant: t.merchant_name, primary, detailed });
 
 	db()
 		.prepare(
@@ -141,9 +142,11 @@ function writeTransaction(accountId: number, t: PlaidTransaction): void {
 			t.name,
 			t.merchant_name,
 			detailed,
-			classify({ description: t.name, merchant: t.merchant_name, primary, detailed }),
+			category,
 			t.pending ? 1 : 0,
-			primary === 'TRANSFER_IN' || primary === 'TRANSFER_OUT' ? 1 : 0
+			// Taken from where the transaction landed, not from Plaid's primary: a
+			// card payoff arrives as LOAN_PAYMENTS and is still a transfer.
+			isTransferCategory(category) ? 1 : 0
 		);
 }
 

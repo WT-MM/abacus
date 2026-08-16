@@ -34,6 +34,11 @@ const DETAILED_MAP: Record<string, string> = {
 	FOOD_AND_DRINK_GROCERIES: 'Groceries',
 	RENT_AND_UTILITIES_RENT: 'Rent & Mortgage',
 	LOAN_PAYMENTS_MORTGAGE_PAYMENT: 'Rent & Mortgage',
+	// Paying a card is not spending — the spending already happened when the
+	// card was used. Counting the payoff as well double-counts everything bought
+	// on credit. Note this cannot be done at the LOAN_PAYMENTS level: a mortgage
+	// or car payment genuinely does leave the household.
+	LOAN_PAYMENTS_CREDIT_CARD_PAYMENT: 'Transfer',
 	// Wages are the only thing that should reach the Salary row, because that row
 	// is what a person reads as "my paycheck". Anything else Plaid calls income
 	// lands in Other Income, where an unexpected amount is noticed rather than
@@ -62,6 +67,28 @@ export function categoryId(name: string): number | null {
 
 export function invalidateCategoryCache(): void {
 	idCache = null;
+	transferIds = null;
+}
+
+let transferIds: Set<number> | null = null;
+
+/**
+ * Whether a category represents money moving between your own accounts.
+ *
+ * Drives the is_transfer flag at ingest, rather than reading Plaid's primary
+ * directly, so that anything routed to a transfer category is excluded however
+ * it got there — including a card payoff Plaid files under LOAN_PAYMENTS, and
+ * anything re-categorised by hand afterwards.
+ */
+export function isTransferCategory(id: number | null): boolean {
+	if (id === null) return false;
+	if (!transferIds) {
+		const rows = db()
+			.prepare(`SELECT id FROM categories WHERE kind = 'transfer'`)
+			.all() as Array<{ id: number }>;
+		transferIds = new Set(rows.map((r) => r.id));
+	}
+	return transferIds.has(id);
 }
 
 /**
