@@ -10,16 +10,39 @@
 
 	const pct = (r: number) => Math.round(r * 1000) / 10;
 
-
 	const surplus = $derived(data.monthlyIncomeCents - data.monthlyExpenseCents);
+
+	const SOURCE_LABEL = {
+		plan: 'your figure',
+		history: 'observed history',
+		budget: 'the budget sheet'
+	} as const;
+
+	const horizonHref = (years: number) => `/forecast?years=${years}&step=${data.step}`;
+	const stepHref = (step: string) => `/forecast?years=${data.years}&step=${step}`;
+
+	// Blank inputs mean "derive it", so an unset override must render empty
+	// rather than as 0 — which would silently pin the projection to zero income.
+	const planIncome = $derived(data.plan.incomeCents === null ? '' : data.plan.incomeCents / 100);
+	const planExpense = $derived(data.plan.expenseCents === null ? '' : data.plan.expenseCents / 100);
+	const hasPlan = $derived(data.plan.incomeCents !== null || data.plan.expenseCents !== null);
 </script>
 
 <svelte:head><title>Forecast · Abacus</title></svelte:head>
 
 <header class="head">
 	<div>
-		<p class="eyebrow">Five-year projection</p>
+		<p class="eyebrow">{data.years}-year projection</p>
 		<h1>Forecast</h1>
+	</div>
+
+	<div class="controls">
+		{#each data.horizons as y (y)}
+			<a class="btn" class:on={data.years === y} href={horizonHref(y)}>{y}y</a>
+		{/each}
+		<span class="sep"></span>
+		<a class="btn" class:on={data.step === 'month'} href={stepHref('month')}>Monthly</a>
+		<a class="btn" class:on={data.step === 'year'} href={stepHref('year')}>Yearly</a>
 	</div>
 </header>
 
@@ -29,14 +52,14 @@
 </p>
 
 <p class="basis">
-	{#if data.basis.source === 'history'}
-		Income and spending are averaged over the last {data.basis.monthsUsed}
-		complete {data.basis.monthsUsed === 1 ? 'month' : 'months'} of real transactions. The current
-		month is excluded — it is only part-way through, and a half month holds a whole rent payment
-		but only half the groceries.
-	{:else}
-		No complete month of transactions yet, so these come from your budget sheet. They will switch
-		to observed averages once a full month has synced.
+	Income comes from <b>{SOURCE_LABEL[data.basis.income]}</b>, spending from
+	<b>{SOURCE_LABEL[data.basis.expense]}</b>.
+	{#if data.basis.income === 'history' || data.basis.expense === 'history'}
+		Observed figures average the last complete months and exclude the current one — it is only
+		part-way through, and a half month holds a whole rent payment but only half the groceries.
+	{/if}
+	{#if data.basis.income === 'budget' || data.basis.expense === 'budget'}
+		Nothing has been observed yet, so the budget sheet is standing in.
 	{/if}
 </p>
 
@@ -64,13 +87,16 @@
 {#if surplus < 0}
 	<p class="banner bad">
 		Spending currently outruns income by {money(Math.abs(surplus), { exact: false })} a month, so the
-		projection below trends down. Adjust the budget sheet to change it.
+		projection below trends down. Change the budget sheet, or state your own figures below.
 	</p>
 {/if}
 
 <section class="card panel">
-	<header class="panel-head"><h2>Projected position</h2></header>
-	<div class="sheet">
+	<header class="panel-head">
+		<h2>Projected position</h2>
+		<span class="eyebrow">{data.table.length} {data.step === 'month' ? 'months' : 'years'}</span>
+	</header>
+	<div class="sheet" class:tall={data.table.length > 14}>
 		<table>
 			<thead>
 				<tr>
@@ -104,10 +130,63 @@
 </section>
 
 <section class="card panel">
+	<header class="panel-head">
+		<h2>Your figures</h2>
+		{#if hasPlan}
+			<form method="POST" action="?/clearPlan" use:enhance>
+				<button class="linkish" type="submit">Go back to observed</button>
+			</form>
+		{/if}
+	</header>
+
+	<div class="pad">
+		{#if form?.planSaved}<p class="banner ok" role="status">Saved.</p>{/if}
+		{#if form?.planCleared}<p class="banner ok" role="status">Back to observed figures.</p>{/if}
+
+		<p class="note">
+			State a monthly income or spending figure to override what the data implies. Useful when you
+			know something the transactions do not yet — a raise, a lease ending — since an average takes
+			months to catch up. Leave a field blank to keep deriving it.
+		</p>
+
+		<form method="POST" action="?/plan" use:enhance class="grid">
+			<label>
+				<span class="eyebrow">Monthly income · $</span>
+				<input
+					name="planIncome"
+					type="number"
+					step="1"
+					min="0"
+					value={planIncome}
+					placeholder={String(Math.round(data.monthlyIncomeCents / 100))}
+				/>
+			</label>
+			<label>
+				<span class="eyebrow">Monthly spending · $</span>
+				<input
+					name="planExpense"
+					type="number"
+					step="1"
+					min="0"
+					value={planExpense}
+					placeholder={String(Math.round(data.monthlyExpenseCents / 100))}
+				/>
+			</label>
+			<button class="btn btn-primary" type="submit">Use these</button>
+		</form>
+
+		<p class="note">
+			The greyed numbers are what is being used now, so an empty field shows what you would be
+			overriding.
+		</p>
+	</div>
+</section>
+
+<section class="card panel">
 	<header class="panel-head"><h2>Assumptions</h2></header>
 	<div class="pad">
 		{#if form?.message}<p class="banner bad" role="alert">{form.message}</p>{/if}
-		{#if form?.ok}<p class="banner ok" role="status">Assumptions saved.</p>{/if}
+		{#if form?.assumptionsSaved}<p class="banner ok" role="status">Assumptions saved.</p>{/if}
 
 		<form method="POST" action="?/save" use:enhance class="grid">
 			<label>
@@ -224,6 +303,66 @@
 
 	.sheet {
 		overflow-x: auto;
+	}
+
+	/* A 360-row monthly table needs a frame; the header stays put inside it. */
+	.sheet.tall {
+		max-height: 30rem;
+		overflow-y: auto;
+	}
+
+	.sheet.tall thead th {
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		background: var(--surface);
+	}
+
+	.controls {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.35rem;
+	}
+
+	.controls .sep {
+		width: 1px;
+		height: 1.4rem;
+		background: var(--rule);
+		margin: 0 0.35rem;
+	}
+
+	.btn.on {
+		border-color: var(--verdigris);
+		box-shadow: inset 2px 0 0 var(--verdigris);
+	}
+
+	.linkish {
+		background: none;
+		border: 0;
+		padding: 0;
+		color: var(--slate);
+		font-size: 0.8125rem;
+		cursor: pointer;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	.linkish:hover {
+		color: var(--verdigris);
+	}
+
+	.head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		justify-content: space-between;
+		gap: 1rem;
+	}
+
+	.basis b {
+		font-weight: 500;
+		color: var(--ink);
 	}
 
 	table {
