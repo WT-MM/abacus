@@ -11,10 +11,66 @@ function key(): Buffer {
 	if (cachedKey) return cachedKey;
 	const raw = Buffer.from(config.encryptionKey(), 'base64');
 	if (raw.length !== 32) {
-		throw new Error('ABACUS_ENCRYPTION_KEY must be 32 bytes, base64-encoded (see `just keygen`)');
+		throw new Error(
+			`ABACUS_ENCRYPTION_KEY must decode to 32 bytes, got ${raw.length}. ` +
+				`Generate one with: node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"`
+		);
 	}
 	cachedKey = raw;
 	return raw;
+}
+
+/**
+ * Fails loudly if the key is absent or the wrong length.
+ *
+ * Called at startup, and again before exchanging a Plaid public token. Without
+ * it the key is first exercised when storing an access token — which happens
+ * immediately *after* the exchange has consumed one of ten lifetime Item slots,
+ * so a mistyped key costs a slot and strands a token that can never be
+ * recovered. A bad key must stop the process, not the link.
+ */
+export function assertEncryptionKeyUsable(): void {
+	key();
+}
+
+const KEY_CHECK = 'crypto.key_check';
+const KEY_CHECK_AAD = 'keycheck';
+const KEY_CHECK_PLAINTEXT = 'abacus';
+
+/**
+ * Proves the configured key is the one this database was encrypted with.
+ *
+ * Length alone is not enough: any other 32-byte value passes `key()` while
+ * leaving every stored access token undecryptable. That failure would surface
+ * as institutions mysteriously breaking, and the natural response — relink
+ * them — spends Item slots that are never returned. Catching it at boot turns
+ * a silent, expensive failure into a refusal to start.
+ *
+ * The check value is written on first boot, so an existing deployment adopts
+ * whatever key it is already using.
+ */
+export function assertEncryptionKeyMatchesDatabase(
+	read: (k: string) => string | null,
+	write: (k: string, v: string) => void
+): void {
+	const stored = read(KEY_CHECK);
+	if (!stored) {
+		write(KEY_CHECK, encrypt(KEY_CHECK_PLAINTEXT, KEY_CHECK_AAD));
+		return;
+	}
+
+	let decrypted: string;
+	try {
+		decrypted = decrypt(stored, KEY_CHECK_AAD);
+	} catch {
+		throw new Error(
+			'ABACUS_ENCRYPTION_KEY does not match the key this database was created with. ' +
+				'Restore the original key — relinking institutions would consume Plaid Item slots permanently.'
+		);
+	}
+	if (decrypted !== KEY_CHECK_PLAINTEXT) {
+		throw new Error('ABACUS_ENCRYPTION_KEY failed its verification check.');
+	}
 }
 
 /**

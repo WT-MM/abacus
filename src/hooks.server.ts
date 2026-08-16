@@ -2,10 +2,17 @@ import { redirect, type Handle } from '@sveltejs/kit';
 import { tailscaleLogin, isOwner } from '$lib/server/auth/identity.ts';
 import { resolveSession, purgeExpired, SESSION_COOKIE } from '$lib/server/auth/session.ts';
 import { config } from '$lib/server/config.ts';
-import { db } from '$lib/server/db.ts';
+import { assertEncryptionKeyUsable, assertEncryptionKeyMatchesDatabase } from '$lib/server/crypto.ts';
+import { db, getMeta, setMeta } from '$lib/server/db.ts';
 
 assertLoopbackOnly();
+// Verified at boot rather than on first use. The first use is storing a Plaid
+// access token, which happens just after an Item slot has been spent.
+assertEncryptionKeyUsable();
 db();
+// Needs the database, so it runs after db(). Catches a key that is the right
+// shape but the wrong value, which length validation cannot see.
+assertEncryptionKeyMatchesDatabase(getMeta, setMeta);
 purgeExpired();
 
 /**
