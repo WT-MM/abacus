@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchDaemon for the Abacus web service on macOS.
+
+  Install to /Library/LaunchDaemons/ (root-owned, mode 644), then:
+    sudo launchctl bootstrap system /Library/LaunchDaemons/io.github.wt-mm.abacus.plist
+
+  Edit the paths, UserName, and the ORIGIN/ABACUS_OWNERS values first.
+  Secrets belong in the environment of a root-readable wrapper, not in this
+  file — a plist in /Library/LaunchDaemons is world-readable.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>io.github.wt-mm.abacus</string>
+
+	<key>UserName</key>
+	<string>_abacus</string>
+
+	<key>WorkingDirectory</key>
+	<string>/opt/abacus</string>
+
+	<!-- The wrapper owns the retry policy; see run-with-retry.sh. -->
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/abacus/deploy/macos/run-with-retry.sh</string>
+		<string>/usr/local/bin/node</string>
+		<string>build/index.js</string>
+	</array>
+
+	<key>RunAtLoad</key>
+	<true/>
+
+	<!-- Restart only on failure. A clean exit is left alone. -->
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+
+	<key>ThrottleInterval</key>
+	<integer>30</integer>
+
+	<key>EnvironmentVariables</key>
+	<dict>
+		<!-- Loopback only. The Tailscale identity header is trusted, and is only
+		     trustworthy because nothing but the local proxy can reach this port. -->
+		<key>HOST</key>
+		<string>127.0.0.1</string>
+		<key>PORT</key>
+		<string>3000</string>
+		<key>NODE_ENV</key>
+		<string>production</string>
+		<key>ABACUS_DB</key>
+		<string>/usr/local/var/abacus/abacus.db</string>
+		<key>ABACUS_ENV_FILE</key>
+		<string>/usr/local/etc/abacus/secrets.env</string>
+		<key>ORIGIN</key>
+		<string>https://abacus.your-tailnet.ts.net</string>
+		<key>ABACUS_ORIGIN</key>
+		<string>https://abacus.your-tailnet.ts.net</string>
+		<key>ABACUS_OWNERS</key>
+		<string>you@example.com</string>
+	</dict>
+
+	<key>StandardOutPath</key>
+	<string>/usr/local/var/log/abacus.log</string>
+	<key>StandardErrorPath</key>
+	<string>/usr/local/var/log/abacus.log</string>
+</dict>
+</plist>

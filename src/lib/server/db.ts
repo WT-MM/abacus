@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { config } from './config.ts';
 import { SCHEMA } from './schema.ts';
@@ -9,7 +9,26 @@ let handle: DatabaseSync | null = null;
 export function db(): DatabaseSync {
 	if (handle) return handle;
 
-	mkdirSync(dirname(config.dbPath), { recursive: true });
+	const dir = dirname(config.dbPath);
+
+	// In production the directory must already exist. Creating it would be worse
+	// than failing: if the database lives on a mounted array and the service
+	// starts before the mount lands, mkdir would create the path on the
+	// underlying root filesystem and SQLite would open a brand-new empty
+	// database there. That reads as total data loss, and the real database is
+	// then silently shadowed once the array mounts. The unit's
+	// RequiresMountsFor= should prevent it; this is the backstop.
+	if (config.isProd) {
+		if (!existsSync(dir)) {
+			throw new Error(
+				`Database directory ${dir} does not exist. Refusing to create it — if this path is on a ` +
+					`mount that has not come up yet, creating it would hide the real database behind an empty one.`
+			);
+		}
+	} else {
+		mkdirSync(dir, { recursive: true });
+	}
+
 	const conn = new DatabaseSync(config.dbPath);
 
 	// WAL lets the daily sync process write while the web process serves reads.

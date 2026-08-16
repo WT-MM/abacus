@@ -4,16 +4,26 @@ import { resolveSession, purgeExpired, SESSION_COOKIE } from '$lib/server/auth/s
 import { config } from '$lib/server/config.ts';
 import { assertEncryptionKeyUsable, assertEncryptionKeyMatchesDatabase } from '$lib/server/crypto.ts';
 import { db, getMeta, setMeta } from '$lib/server/db.ts';
+import { EXIT } from '$lib/server/exit-codes.ts';
 
-assertLoopbackOnly();
-// Verified at boot rather than on first use. The first use is storing a Plaid
-// access token, which happens just after an Item slot has been spent.
-assertEncryptionKeyUsable();
-db();
-// Needs the database, so it runs after db(). Catches a key that is the right
-// shape but the wrong value, which length validation cannot see.
-assertEncryptionKeyMatchesDatabase(getMeta, setMeta);
-purgeExpired();
+try {
+	assertLoopbackOnly();
+	// Verified at boot rather than on first use. The first use is storing a Plaid
+	// access token, which happens just after an Item slot has been spent.
+	assertEncryptionKeyUsable();
+	db();
+	// Needs the database, so it runs after db(). Catches a key that is the right
+	// shape but the wrong value, which length validation cannot see.
+	assertEncryptionKeyMatchesDatabase(getMeta, setMeta);
+	purgeExpired();
+} catch (err) {
+	// Exit EX_CONFIG rather than letting this throw. The unit sets
+	// RestartPreventExitStatus for this code, so systemd stops instead of
+	// restarting a process whose configuration cannot become valid on retry.
+	// Throwing would exit 1 and be indistinguishable from a genuine crash.
+	console.error(`abacus: ${err instanceof Error ? err.message : String(err)}`);
+	process.exit(EXIT.CONFIG);
+}
 
 /**
  * Refuses to start if the server would listen on a public interface.

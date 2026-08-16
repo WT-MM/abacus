@@ -3,6 +3,12 @@ Description=Abacus daily Plaid sync
 Documentation=https://github.com/WT-MM/abacus
 After=network-online.target tailscaled.service
 Wants=network-online.target
+RequiresMountsFor=/var/lib/abacus
+
+# Three attempts, spread over an hour. A Plaid or network blip at 06:30 should
+# not leave the ledger a day stale, but there is no point hammering past that.
+StartLimitBurst=3
+StartLimitIntervalSec=3600
 
 [Service]
 Type=oneshot
@@ -18,6 +24,14 @@ EnvironmentFile=/etc/abacus/secrets.env
 # synchronous, so a sync executed in the request loop would freeze the UI for
 # its whole duration. Node 26 strips the types, so there is no build step.
 ExecStart=/usr/bin/node scripts/sync.ts
+
+Restart=on-failure
+RestartSec=300
+
+# 65 is EX_DATAERR — an institution needs reconnecting in the browser, which no
+# amount of retrying will do. 78 is EX_CONFIG. Both stop immediately and leave
+# the unit failed so it is visible. Everything else (EX_TEMPFAIL, 75) retries.
+RestartPreventExitStatus=65 78
 
 # Plaid can be slow when an institution is struggling; give it room but do not
 # let a wedged run overlap the next day's.

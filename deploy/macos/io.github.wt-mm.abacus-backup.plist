@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Nightly backup on macOS, the counterpart to abacus-backup.timer.
+  Runs after the sync so the day's data is included.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>io.github.wt-mm.abacus-backup</string>
+
+	<key>UserName</key>
+	<string>_abacus</string>
+
+	<key>WorkingDirectory</key>
+	<string>/opt/abacus</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/abacus/deploy/macos/run-with-retry.sh</string>
+		<string>/usr/local/bin/node</string>
+		<string>scripts/backup.ts</string>
+	</array>
+
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>7</integer>
+		<key>Minute</key>
+		<integer>30</integer>
+	</dict>
+
+	<key>RunAtLoad</key>
+	<false/>
+
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>NODE_ENV</key>
+		<string>production</string>
+		<key>ABACUS_DB</key>
+		<string>/usr/local/var/abacus/abacus.db</string>
+		<key>ABACUS_ENV_FILE</key>
+		<string>/usr/local/etc/abacus/secrets.env</string>
+		<!-- Point at a volume that is not the one holding the database. -->
+		<key>ABACUS_BACKUP_DIR</key>
+		<string>/Volumes/Backups/abacus</string>
+		<key>ABACUS_BACKUP_KEEP</key>
+		<string>14</string>
+	</dict>
+
+	<key>StandardOutPath</key>
+	<string>/usr/local/var/log/abacus-backup.log</string>
+	<key>StandardErrorPath</key>
+	<string>/usr/local/var/log/abacus-backup.log</string>
+</dict>
+</plist>

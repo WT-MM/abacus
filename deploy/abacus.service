@@ -4,6 +4,20 @@ Documentation=https://github.com/WT-MM/abacus
 After=network-online.target tailscaled.service
 Wants=network-online.target
 
+# If the database lives on a separate mount (an array, an external disk), name
+# it here. systemd will order this unit after that mount and stop it if the
+# mount goes away. Without it the service can start before the disk is there,
+# and would open an empty database on the mountpoint's underlying directory.
+# Edit to match ABACUS_DB below; harmless to leave pointing at a normal path.
+RequiresMountsFor=/var/lib/abacus
+
+# Give up after 3 failed starts within 5 minutes rather than restarting for
+# ever. The defaults do NOT achieve this: burst is 5 within 10s, but with
+# RestartSec=5 only about two starts fit in a 10s window, so the counter keeps
+# resetting and a broken service loops indefinitely, filling the journal.
+StartLimitBurst=3
+StartLimitIntervalSec=300
+
 [Service]
 Type=simple
 User=abacus
@@ -32,6 +46,12 @@ ExecStart=/usr/bin/node build/index.js
 
 Restart=on-failure
 RestartSec=5
+
+# 78 is EX_CONFIG: a bad encryption key, a non-loopback bind, a missing
+# database directory. None of those become valid by trying again, so the
+# service stops in a failed state where `systemctl status` shows the reason,
+# instead of hiding it in a restart loop.
+RestartPreventExitStatus=78
 
 # --------------------------------------------------------------- hardening
 NoNewPrivileges=true
