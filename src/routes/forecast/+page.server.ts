@@ -5,52 +5,72 @@ import { currentPosition, netWorthHistory } from '$lib/server/networth.ts';
 import { buildGrid, monthKey, trailingMonthlyAverages } from '$lib/server/budget.ts';
 import { project, monthsToTarget, DEFAULT_ASSUMPTIONS } from '$lib/forecast.ts';
 import { loadAssumptions } from '$lib/server/assumptions.ts';
+import { loadPlan, savePlan, resolveInputs, type Plan } from '$lib/server/plan.ts';
 import { monthShort as label } from '$lib/dates.ts';
 
-const HORIZON = 60;
+// Not exported: SvelteKit only permits load/actions/config and friends from a
+// +page.server.ts, and rejects anything else at build time. It reaches the page
+// through the returned payload instead.
+const HORIZONS = [1, 5, 30] as const;
 
 export const load: PageServerLoad = async ({ url }) => {
 	const month = monthKey();
 	const position = currentPosition();
 	const grid = buildGrid(month);
 	const assumptions = loadAssumptions();
+	const plan = loadPlan();
 
-	// Both figures come from one basis. Previously income read the budget sheet
-	// while spending read observed data, so an unfilled sheet produced a
-	// guaranteed decline no matter what the person actually earned.
-	const trailing = trailingMonthlyAverages(month);
-	const usingHistory = trailing.monthsUsed > 0;
+	const requested = Number(url.searchParams.get('years'));
+	const years = (HORIZONS as readonly number[]).includes(requested) ? requested : 5;
 
-	const income = usingHistory ? trailing.incomeCents : grid.totals.income;
-	const expense = usingHistory
-		? trailing.expenseCents
-		: grid.totals.projectedExpense || grid.totals.expense;
+	// Month by month is the useful view over a year; over thirty it is 360 rows
+	// of noise, so the default follows the horizon while staying overridable.
+	const step = url.searchParams.get('step') === 'month' || (years <= 1 && url.searchParams.get('step') !== 'year')
+		? 'month'
+		: 'year';
 
-	const points = project(position, month, HORIZON, income, expense, assumptions);
+	const inputs = resolveInputs({
+		plan,
+		trailing: trailingMonthlyAverages(month),
+		budgetIncomeCents: grid.totals.income,
+		budgetExpenseCents: grid.totals.projectedExpense || grid.totals.expense
+	});
+
+	const points = project(position, month, years * 12, inputs.incomeCents, inputs.expenseCents, assumptions);
 
 	const target = Number(url.searchParams.get('target') ?? 0) * 100;
 
-
 	return {
 		assumptions,
+		plan,
+		years,
+		step,
+		horizons: HORIZONS,
 		position: {
 			cashCents: position.cashCents,
 			investmentsCents: position.investmentsCents,
 			debtCents: position.debtCents,
 			netWorthCents: position.netWorthCents
 		},
-		monthlyIncomeCents: income,
-		monthlyExpenseCents: expense,
-		// Surfaced so the page can say where its numbers came from. A projection
+		monthlyIncomeCents: inputs.incomeCents,
+		monthlyExpenseCents: inputs.expenseCents,
+		// Surfaced so the page can say where each number came from. A projection
 		// whose inputs are unexplained invites more trust than it has earned.
-		basis: { source: usingHistory ? 'history' : 'budget', monthsUsed: trailing.monthsUsed },
+		basis: { income: inputs.incomeSource, expense: inputs.expenseSource },
 		history: netWorthHistory(12),
 		chart: points.map((p) => ({ label: label(p.month), value: p.netWorthCents })),
-		// One row a year keeps a five-year horizon readable.
-		table: points.filter((_, i) => (i + 1) % 12 === 0 || i === 0 || i === 5 || i === 11),
+		table: step === 'month' ? points : points.filter((_, i) => (i + 1) % 12 === 0),
 		target: target > 0 ? { cents: target, months: monthsToTarget(points, target) } : null
 	};
 };
+
+/** Blank means "derive it"; a number means "use exactly this". */
+function optionalCents(raw: FormDataEntryValue | null): number | null {
+	const text = String(raw ?? '').trim();
+	if (!text) return null;
+	const value = Number(text);
+	return Number.isFinite(value) ? Math.round(value * 100) : null;
+}
 
 export const actions: Actions = {
 	save: async ({ request }) => {
@@ -77,6 +97,28 @@ export const actions: Actions = {
 		}
 
 		setMeta('forecast.assumptions', JSON.stringify({ ...DEFAULT_ASSUMPTIONS, ...assumptions }));
-		return { ok: true };
+		// Each action reports its own flag; a shared `ok` made saving the plan
+		// announce "Assumptions saved" in the wrong panel.
+		return { ok: true, assumptionsSaved: true };
+	},
+
+	plan: async ({ request }) => {
+		const form = await request.formData();
+		const plan: Plan = {
+			incomeCents: optionalCents(form.get('planIncome')),
+			expenseCents: optionalCents(form.get('planExpense'))
+		};
+
+		if ((plan.incomeCents ?? 0) < 0 || (plan.expenseCents ?? 0) < 0) {
+			return fail(422, { message: 'Income and spending cannot be negative' });
+		}
+
+		savePlan(plan);
+		return { ok: true, planSaved: true };
+	},
+
+	clearPlan: async () => {
+		savePlan({ incomeCents: null, expenseCents: null });
+		return { ok: true, planCleared: true };
 	}
 };
