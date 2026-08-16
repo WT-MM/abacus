@@ -108,7 +108,9 @@ pnpm build         # production build
 ```
 
 Deployment — systemd units, `tailscale serve`, Plaid redirect setup — is in
-[`deploy/README.md`](deploy/README.md).
+[`deploy/README.md`](deploy/README.md), or
+[`deploy/AGENT-DEPLOY.md`](deploy/AGENT-DEPLOY.md) if you would rather hand it
+to a coding agent running on the server.
 
 ## Layout
 

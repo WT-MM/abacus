@@ -1,7 +1,12 @@
 # Deploying Abacus
 
-Assumes a Linux server already on your tailnet with Node 22.5+ (26 recommended)
-and `tailscaled` running.
+Assumes a Linux server already on your tailnet with Node 22.5+ (24 or newer
+recommended) and `tailscaled` running.
+
+> Handing this to a coding agent on the server? Point it at
+> [`AGENT-DEPLOY.md`](AGENT-DEPLOY.md) instead. Same deployment, written for an
+> agent with no prior context: explicit verification after each step, the rules
+> it must not break, and the three points where it has to stop and ask you.
 
 ## 1. Put the app on the server
 
