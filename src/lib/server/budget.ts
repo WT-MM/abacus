@@ -24,6 +24,19 @@ export type BudgetGrid = {
 
 export const monthKey = (d = new Date()) => d.toISOString().slice(0, 7);
 
+/**
+ * The master budget: a standing monthly sheet that new months inherit and the
+ * projection runs on.
+ *
+ * It lives in budget_cells under a sentinel month rather than its own table, so
+ * it is edited by the same grid, evaluated by the same formula engine, and
+ * copied by the same code as any real month. Safe because every query against
+ * that column is an equality match — nothing range-scans it.
+ */
+export const TEMPLATE_MONTH = 'template';
+
+export const isTemplate = (month: string) => month === TEMPLATE_MONTH;
+
 export function shiftMonth(month: string, delta: number): string {
 	const [y, m] = month.split('-').map(Number);
 	const d = new Date(Date.UTC(y, m - 1 + delta, 1));
@@ -110,14 +123,16 @@ const MAX_LOOKBACK = 12;
 export function buildGrid(month: string, lookback = MAX_LOOKBACK): BudgetGrid {
 	const cats = categories();
 	const cells = formulas(month);
-	const actual = actuals(month);
+	// The template describes intent, not a period, so it has nothing observed to
+	// compare against and no month before it.
+	const actual = isTemplate(month) ? new Map<number, Observed>() : actuals(month);
 
 	const byName = new Map(cats.map((c, i) => [c.name.toLowerCase(), i + 1]));
 	const actualOf = (row: number) => (actual.get(cats[row - 1]?.id)?.total ?? 0) / 100;
 
 	let prevGrid: BudgetGrid | null = null;
 	const prevOf = (row: number): number => {
-		if (lookback <= 0) return 0;
+		if (lookback <= 0 || isTemplate(month)) return 0;
 		prevGrid ??= buildGrid(shiftMonth(month, -1), lookback - 1);
 		return (prevGrid.rows[row - 1]?.budgetCents ?? 0) / 100;
 	};
@@ -238,6 +253,71 @@ export function setCell(month: string, categoryId: number, formula: string): voi
 }
 
 /** Copies a month's formulas forward, so a new month starts from the last one. */
+/**
+ * What the master budget allocates to investing each month.
+ *
+ * Transfer categories are excluded from the grid — moving money between your
+ * own accounts is not spending — so this reads the cell directly. Without it a
+ * budget that says "invest 1,500 a month" would be invisible to the projection
+ * and have to be restated in Assumptions.
+ *
+ * Only literal amounts and variable arithmetic are supported here: a formula
+ * referencing B[Rent] cannot be evaluated outside the grid, and resolves to 0
+ * rather than guessing.
+ */
+export function templateInvestmentCents(): number {
+	const row = db()
+		.prepare(
+			`SELECT b.formula FROM budget_cells b
+			   JOIN categories c ON c.id = b.category_id
+			  WHERE b.month = ? AND c.kind = 'transfer' AND c.name = 'Investment'`
+		)
+		.get(TEMPLATE_MONTH) as { formula: string } | undefined;
+	if (!row) return 0;
+
+	const variables = variableMap();
+	const { value, error } = safeEvaluateRow(1, {
+		rowCount: 0,
+		rowByName: () => undefined,
+		rawBudget: () => row.formula,
+		actual: () => 0,
+		projected: () => 0,
+		prevBudget: () => 0,
+		variable: (name) => variables.get(name)
+	});
+
+	return error ? 0 : Math.round(value * 100);
+}
+
+/** Totals of the master budget, or null when none has been set up. */
+export function templateTotals(): { incomeCents: number; expenseCents: number } | null {
+	const { n } = db()
+		.prepare('SELECT COUNT(*) AS n FROM budget_cells WHERE month = ?')
+		.get(TEMPLATE_MONTH) as { n: number };
+	if (!n) return null;
+
+	const grid = buildGrid(TEMPLATE_MONTH);
+	return { incomeCents: grid.totals.income, expenseCents: grid.totals.expense };
+}
+
+/**
+ * Fills an untouched month from the master budget.
+ *
+ * Only ever writes to a month that has no cells of its own, so it cannot
+ * overwrite edits, and never to a past month — back-filling a budget onto a
+ * month that has already happened would invent intent that never existed.
+ */
+export function seedFromTemplate(month: string, today = monthKey()): number {
+	if (isTemplate(month) || month < today) return 0;
+
+	const { n } = db()
+		.prepare('SELECT COUNT(*) AS n FROM budget_cells WHERE month = ?')
+		.get(month) as { n: number };
+	if (n) return 0;
+
+	return copyMonth(TEMPLATE_MONTH, month);
+}
+
 export function copyMonth(from: string, to: string): number {
 	const rows = db().prepare('SELECT category_id, formula FROM budget_cells WHERE month = ?').all(from) as Array<{
 		category_id: number;
