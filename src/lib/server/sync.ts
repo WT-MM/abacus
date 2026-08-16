@@ -57,7 +57,10 @@ function upsertAccounts(itemId: number, institution: string, accounts: PlaidAcco
 		                      institution_name, type, subtype, currency,
 		                      current_cents, available_cents, limit_cents, balance_as_of)
 		VALUES (?, 'plaid', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(source, external_id) DO UPDATE SET
+		-- accounts_external is a partial index, so its predicate has to be
+		-- restated here. Without it SQLite matches no constraint and the
+		-- statement fails at prepare time, before a single row is written.
+		ON CONFLICT(source, external_id) WHERE external_id IS NOT NULL DO UPDATE SET
 			name            = excluded.name,
 			official_name   = excluded.official_name,
 			mask            = excluded.mask,
@@ -117,7 +120,9 @@ function writeTransaction(accountId: number, t: PlaidTransaction): void {
 			                           amount_cents, description, merchant, plaid_category,
 			                           category_id, pending, is_transfer)
 			 VALUES (?, 'plaid', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			 ON CONFLICT(source, external_id) DO UPDATE SET
+			 -- transactions_external is partial; the predicate is part of the
+			 -- conflict target or the statement will not compile.
+			 ON CONFLICT(source, external_id) WHERE external_id IS NOT NULL DO UPDATE SET
 			   posted_on    = excluded.posted_on,
 			   amount_cents = excluded.amount_cents,
 			   description  = excluded.description,
@@ -270,7 +275,8 @@ async function syncInvestments(item: ItemRow, token: string, accountIds: Map<str
 						                           amount_cents, description, plaid_category, category_id,
 						                           pending, is_transfer)
 						 VALUES (?, 'plaid', ?, ?, ?, ?, ?, ?, ?, 0, ?)
-						 ON CONFLICT(source, external_id) DO UPDATE SET
+						 -- Partial index; see the note on the transactions upsert above.
+						 ON CONFLICT(source, external_id) WHERE external_id IS NOT NULL DO UPDATE SET
 						   amount_cents = excluded.amount_cents, posted_on = excluded.posted_on`
 					)
 					.run(
