@@ -1,4 +1,4 @@
-import { db } from './db.ts';
+import { db, tx } from './db.ts';
 import { safeEvaluateRow, type CellContext } from '../budget/formula.ts';
 import { variableMap } from './variables.ts';
 
@@ -318,6 +318,62 @@ export function seedFromTemplate(month: string, today = monthKey()): number {
 	return copyMonth(TEMPLATE_MONTH, month);
 }
 
+/**
+ * Months after `from` that have budget cells of their own.
+ *
+ * The template is excluded explicitly, not by the range: month keys are
+ * compared as text, and 'template' sorts after every date because 't' is
+ * greater than any digit. Left implicit, a sweep of future months would take
+ * the master budget with it.
+ */
+export function futureMonths(from = monthKey()): string[] {
+	return (
+		db()
+			.prepare(
+				`SELECT DISTINCT month FROM budget_cells
+				  WHERE month > ? AND month <> ?
+				  ORDER BY month`
+			)
+			.all(from, TEMPLATE_MONTH) as Array<{ month: string }>
+	).map((r) => r.month);
+}
+
+/**
+ * Clears every month after `from`.
+ *
+ * Browsing forward seeds each month it lands on, so a few clicks can leave a
+ * trail of months nobody meant to create. This is the way back.
+ */
+export function deleteFutureMonths(from = monthKey()): number {
+	const months = futureMonths(from);
+	if (!months.length) return 0;
+
+	tx(() => {
+		db()
+			.prepare('DELETE FROM budget_cells WHERE month > ? AND month <> ?')
+			.run(from, TEMPLATE_MONTH);
+	});
+	return months.length;
+}
+
+/**
+ * Discards a month's own budget and rebuilds it from the master.
+ *
+ * Deletes first rather than copying over the top: a merge would leave behind
+ * any category the month has and the master does not, so the result would match
+ * neither, and "reset" would quietly mean "mostly reset". Destructive by
+ * design, which is why the button asks first.
+ */
+export function replaceFromTemplate(month: string): number {
+	if (isTemplate(month)) return 0;
+
+	return tx(() => {
+		db().prepare('DELETE FROM budget_cells WHERE month = ?').run(month);
+		return copyMonth(TEMPLATE_MONTH, month);
+	});
+}
+
+/** Merges `from` over `to`, leaving any cell `from` does not define. */
 export function copyMonth(from: string, to: string): number {
 	const rows = db().prepare('SELECT category_id, formula FROM budget_cells WHERE month = ?').all(from) as Array<{
 		category_id: number;

@@ -7,6 +7,10 @@ import {
 	monthKey,
 	shiftMonth,
 	seedFromTemplate,
+	replaceFromTemplate,
+	futureMonths,
+	deleteFutureMonths,
+	templateTotals,
 	TEMPLATE_MONTH,
 	isTemplate
 } from '$lib/server/budget.ts';
@@ -26,6 +30,10 @@ export const load: PageServerLoad = async ({ url }) => {
 	return {
 		grid: buildGrid(month),
 		template: isTemplate(month),
+		hasTemplate: templateTotals() !== null,
+		// Browsing forward seeds each month it lands on, so offer the way back
+		// whenever that has actually happened.
+		futureMonths: futureMonths(),
 		templateMonth: TEMPLATE_MONTH,
 		seeded,
 		prevMonth: isTemplate(month) ? null : shiftMonth(month, -1),
@@ -68,11 +76,16 @@ export const actions: Actions = {
 		return { ok: true, copied };
 	},
 
-	saveAsTemplate: async ({ request }) => {
+	applyTemplate: async ({ request }) => {
 		const form = await request.formData();
 		const month = String(form.get('month') ?? '');
 		if (!VALID_MONTH.test(month)) return fail(400, { message: 'Bad request' });
-		const copied = copyMonth(month, TEMPLATE_MONTH);
-		return { ok: true, savedAsTemplate: copied };
+		const applied = replaceFromTemplate(month);
+		return { ok: true, applied };
+	},
+
+	clearFuture: async () => {
+		const cleared = deleteFutureMonths();
+		return { ok: true, cleared };
 	}
 };

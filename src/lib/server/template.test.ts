@@ -99,6 +99,51 @@ describe('seeding a month from the template', () => {
 	});
 });
 
+describe('resetting a month to the master budget', () => {
+	const NOW = '2026-08';
+
+	it('replaces the month wholesale', () => {
+		setTemplate('Groceries', '600');
+		setTemplate('Salary', '9000');
+		budget.setCell(NOW, idOf('Groceries'), '999');
+
+		expect(budget.replaceFromTemplate(NOW)).toBe(2);
+		const grid = budget.buildGrid(NOW);
+		expect(grid.rows.find((r) => r.name === 'Groceries')!.budgetCents).toBe(60_000);
+		expect(grid.rows.find((r) => r.name === 'Salary')!.budgetCents).toBe(900_000);
+	});
+
+	it('drops categories the master budget does not define', () => {
+		// A merge would leave this behind, and the result would match neither the
+		// month nor the master — "reset" would quietly mean "mostly reset".
+		setTemplate('Groceries', '600');
+		budget.setCell(NOW, idOf('Travel'), '1200');
+
+		budget.replaceFromTemplate(NOW);
+		expect(budget.buildGrid(NOW).rows.find((r) => r.name === 'Travel')!.budgetCents).toBe(0);
+		expect(cellsIn(NOW)).toBe(1);
+	});
+
+	it('will reset a past month, unlike automatic seeding', () => {
+		// Seeding refuses to invent intent for a month that already happened;
+		// asking for it explicitly is a different thing.
+		setTemplate('Groceries', '600');
+		expect(budget.replaceFromTemplate('2026-01')).toBe(1);
+	});
+
+	it('refuses to overwrite the master budget with itself', () => {
+		setTemplate('Groceries', '600');
+		expect(budget.replaceFromTemplate(budget.TEMPLATE_MONTH)).toBe(0);
+		expect(cellsIn(budget.TEMPLATE_MONTH)).toBe(1);
+	});
+
+	it('clears a month when the master budget is empty', () => {
+		budget.setCell(NOW, idOf('Groceries'), '999');
+		expect(budget.replaceFromTemplate(NOW)).toBe(0);
+		expect(cellsIn(NOW)).toBe(0);
+	});
+});
+
 describe('forecast basis precedence', () => {
 	const trailing = (used = 3) => ({ incomeCents: 800_000, expenseCents: 500_000, monthsUsed: used });
 	const args = (template: { incomeCents: number; expenseCents: number } | null, used = 3) => ({
