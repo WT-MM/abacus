@@ -73,17 +73,23 @@ function repair(conn: DatabaseSync): void {
 	// Credit-card payoffs were classified as spending, so everything bought on
 	// credit was counted twice: once at the till and once when the card was
 	// paid. Rows categorised by hand are left alone.
-	if (!done('card-payments-are-transfers')) {
+	//
+	// Matched with LIKE rather than an exact name. Plaid has two taxonomy
+	// versions in the wild and the exact string differs between them; an exact
+	// match that misses simply does nothing, silently, and the repair would look
+	// like it had run. A new marker so a database that already ran the narrower
+	// version gets this one too.
+	if (!done('card-payments-are-transfers-v2')) {
 		conn
 			.prepare(
 				`UPDATE transactions
 				    SET category_id = (SELECT id FROM categories WHERE name = 'Transfer'),
 				        is_transfer = 1
-				  WHERE plaid_category = 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT'
+				  WHERE plaid_category LIKE '%CREDIT_CARD_PAYMENT%'
 				    AND category_locked = 0`
 			)
 			.run();
-		mark('card-payments-are-transfers');
+		mark('card-payments-are-transfers-v2');
 	}
 
 	// is_transfer used to be derived from Plaid's primary category alone, so a

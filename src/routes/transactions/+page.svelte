@@ -111,6 +111,25 @@
 	</p>
 {/if}
 
+{#if data.strandedCardPayments && data.flag !== 'card-payments'}
+	<p class="banner warn">
+		<span>
+			{data.strandedCardPayments} credit card
+			{data.strandedCardPayments === 1 ? 'payment is' : 'payments are'} filed as spending. Paying a
+			card is not spending — the purchase already counted — so these double-count. They were left
+			alone because their category was set by hand.
+		</span>
+		<a href="/transactions?flag=card-payments">Show them</a>
+	</p>
+{/if}
+
+{#if data.flag === 'card-payments'}
+	<p class="banner warn">
+		<span>Set each of these to <b>Transfer</b> to take it out of spending.</span>
+		<a href="/transactions">Clear filter</a>
+	</p>
+{/if}
+
 {#if form?.applied !== undefined}
 	<p class="banner" role="status">Rule saved and applied to {form.applied} transactions.</p>
 {/if}
@@ -238,11 +257,26 @@
 	}
 
 	.banner {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem 1rem;
 		margin-bottom: 1rem;
 		padding: 0.65rem 0.85rem;
 		background: var(--surface);
 		border-left: 2px solid var(--verdigris);
 		font-size: 0.875rem;
+	}
+
+	.banner.warn {
+		border-left-color: var(--brass);
+		color: var(--slate);
+	}
+
+	.banner b {
+		font-weight: 500;
+		color: var(--ink);
 	}
 
 	.sheet {

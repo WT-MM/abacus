@@ -48,6 +48,30 @@ export const load: PageServerLoad = async ({ url }) => {
 
 	// Lets a budget row link straight to the transactions behind its Actual
 	// figure, which is otherwise a number with no way to check it.
+	// A card payment sitting in a spending category double-counts whatever was
+	// bought on the card. The repair fixes these automatically, but skips rows
+	// categorised by hand — deliberately, since a manual choice should stand.
+	// The consequence is that half of a payment pair can be corrected while the
+	// other half is not, which is worse than leaving both: the remaining leg
+	// becomes negative spending. So they are surfaced rather than left silent.
+	const strandedCardPayments = (
+		db()
+			.prepare(
+				`SELECT COUNT(*) AS n FROM transactions t
+				   JOIN categories c ON c.id = t.category_id
+				  WHERE t.plaid_category LIKE '%CREDIT_CARD_PAYMENT%'
+				    AND c.kind <> 'transfer'`
+			)
+			.get() as { n: number }
+	).n;
+
+	if (url.searchParams.get('flag') === 'card-payments') {
+		where.push(
+			`t.plaid_category LIKE '%CREDIT_CARD_PAYMENT%'
+			 AND t.category_id IN (SELECT id FROM categories WHERE kind <> 'transfer')`
+		);
+	}
+
 	const month = url.searchParams.get('month');
 	if (month && /^\d{4}-\d{2}$/.test(month)) {
 		where.push('substr(t.posted_on, 1, 7) = ?');
@@ -87,6 +111,8 @@ export const load: PageServerLoad = async ({ url }) => {
 		},
 		// The sum of everything matching, not just this page — otherwise drilling
 		// into a budget row shows rows that cannot be reconciled against it.
+		strandedCardPayments,
+		flag: url.searchParams.get('flag') ?? '',
 		matchedCents: (
 			db()
 				.prepare(`SELECT IFNULL(SUM(t.amount_cents), 0) AS total FROM transactions t ${clause}`)
