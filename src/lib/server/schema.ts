@@ -1,8 +1,6 @@
 // Generated from the schema DDL. Kept as a TypeScript module rather than a
 // .sql file so that it is bundled into the production build: a readFileSync
 // of a sibling .sql file resolves in dev and then ENOENTs after `vite build`.
-//
-// Applied idempotently at startup by db.ts.
 
 export const SCHEMA = `-- Abacus schema. Applied idempotently at startup by db.ts.
 -- Money is stored as integer cents throughout. Balances are stored exactly as
@@ -125,6 +123,23 @@ CREATE TABLE IF NOT EXISTS budget_cells (
   category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
   formula     TEXT NOT NULL,
   PRIMARY KEY (month, category_id)
+);
+
+-- Named constants usable in budget formulas: =avg_meal_cost * 20.
+--
+-- value is REAL rather than integer cents because a variable is not
+-- necessarily money — meals_per_week is a count. Formula arithmetic already
+-- runs in floating-point dollars and rounds to cents once, at the boundary in
+-- budget.ts, so this matches how the rest of the expression is evaluated.
+--
+-- name is stored upper-cased because the tokenizer upper-cases identifiers,
+-- making references case-insensitive; label keeps the spelling as typed.
+CREATE TABLE IF NOT EXISTS variables (
+  name       TEXT PRIMARY KEY,
+  label      TEXT NOT NULL,
+  value      REAL NOT NULL,
+  note       TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS rules (

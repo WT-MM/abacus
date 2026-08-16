@@ -240,6 +240,12 @@ export interface CellContext {
 	projected(row: number): number;
 	/** Previous month's resolved budget for a row, in dollars. */
 	prevBudget(row: number): number;
+	/**
+	 * A named constant, looked up by its upper-cased name — the tokenizer
+	 * upper-cases identifiers, so references are case-insensitive. Undefined
+	 * when no such variable is defined.
+	 */
+	variable?(name: string): number | undefined;
 }
 
 function resolveRow(sel: RowSel, ctx: CellContext): number {
@@ -380,8 +386,18 @@ function callFn(node: Extract<Ast, { kind: 'call' }>, ctx: CellContext, self: nu
 			const row = node.args.length ? resolveRow({ kind: 'index', index: evaluate(node.args[0], ctx, self, stack) }, ctx) : self;
 			return ctx.prevBudget(row);
 		}
-		default:
+		default: {
+			// A bare identifier parses as a zero-argument call, so a named constant
+			// arrives here. Only a call with no arguments can be one: `foo(1)` is
+			// unambiguously meant as a function, and reporting it as a missing
+			// variable would send the reader looking in the wrong place.
+			if (!node.args.length) {
+				const value = ctx.variable?.(node.name);
+				if (value !== undefined) return value;
+				throw new FormulaError('#NAME?', `No variable or function named ${node.name}`);
+			}
 			throw new FormulaError('#NAME?', `Unknown function ${node.name}`);
+		}
 	}
 }
 

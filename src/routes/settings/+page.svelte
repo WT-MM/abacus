@@ -81,6 +81,53 @@
 </section>
 
 <section class="card panel">
+	<header class="panel-head"><h2>Formula variables</h2></header>
+
+	{#if data.variables.length}
+		<ul class="rows">
+			{#each data.variables as v (v.name)}
+				<li>
+					<div>
+						<p class="name"><code>{v.label}</code> = {v.value}</p>
+						<p class="meta faint">
+							{v.note ?? 'No note'}
+							· used by {v.usedBy} budget {v.usedBy === 1 ? 'cell' : 'cells'}
+						</p>
+					</div>
+					<form method="POST" action="?/deleteVariable" use:enhance>
+						<input type="hidden" name="name" value={v.name} />
+						<button class="linkish" type="submit">Delete</button>
+					</form>
+				</li>
+			{/each}
+		</ul>
+	{/if}
+
+	<div class="pad">
+		<p class="lede">
+			Named constants you can use in budget formulas — <code>=avg_meal_cost * 20</code>. Change the
+			value here and every cell that references it recalculates. Names are case-insensitive.
+		</p>
+
+		<form method="POST" action="?/saveVariable" use:enhance class="inline">
+			<label>
+				<span class="eyebrow">Name</span>
+				<input name="label" placeholder="avg_meal_cost" required />
+			</label>
+			<label>
+				<span class="eyebrow">Value</span>
+				<input name="value" type="number" step="any" placeholder="14.50" required />
+			</label>
+			<label>
+				<span class="eyebrow">Note · optional</span>
+				<input name="note" placeholder="lunch out" />
+			</label>
+			<button class="btn" type="submit">Save</button>
+		</form>
+	</div>
+</section>
+
+<section class="card panel">
 	<header class="panel-head"><h2>Categorisation rules</h2></header>
 	{#if data.rules.length}
 		<ul class="rows">
@@ -243,6 +290,21 @@
 
 	.linkish:hover {
 		color: var(--iron);
+	}
+
+	.lede {
+		margin-bottom: 1rem;
+		color: var(--slate);
+		font-size: 0.8125rem;
+		max-width: 68ch;
+	}
+
+	.lede code {
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		padding: 0.1rem 0.3rem;
+		background: var(--surface-sunk);
+		border-radius: 2px;
 	}
 
 	.footnote {

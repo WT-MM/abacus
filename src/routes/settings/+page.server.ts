@@ -4,6 +4,7 @@ import { db } from '$lib/server/db.ts';
 import { credentialsFor } from '$lib/server/auth/webauthn.ts';
 import { invalidateCategoryCache } from '$lib/server/categorize.ts';
 import { config, plaidConfigured } from '$lib/server/config.ts';
+import { listVariables, upsertVariable, deleteVariable, formulasUsing, VariableError } from '$lib/server/variables.ts';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const owner = locals.auth.login ?? '';
@@ -22,6 +23,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			)
 			.all(),
 		categories: db().prepare('SELECT id, name, kind, grp FROM categories ORDER BY sort, id').all(),
+		variables: listVariables().map((v) => ({ ...v, usedBy: formulasUsing(v.name).length })),
 		environment: {
 			plaidReady: plaidConfigured(),
 			plaidEnv: config.plaid.env,
@@ -61,6 +63,41 @@ export const actions: Actions = {
 		// Row numbers in the budget sheet shift when categories change; the cache
 		// that maps names to ids must not outlive that.
 		invalidateCategoryCache();
+		return { ok: true };
+	},
+
+	saveVariable: async ({ request }) => {
+		const form = await request.formData();
+		const label = String(form.get('label') ?? '');
+		const value = Number(form.get('value'));
+		const note = String(form.get('note') ?? '');
+
+		try {
+			upsertVariable(label, value, note);
+		} catch (err) {
+			if (err instanceof VariableError) return fail(422, { message: err.message });
+			throw err;
+		}
+		return { ok: true };
+	},
+
+	deleteVariable: async ({ request }) => {
+		const form = await request.formData();
+		const name = String(form.get('name') ?? '');
+
+		// Refuses while a formula still references it, rather than leaving cells
+		// reading #NAME? with no indication of what changed.
+		const used = formulasUsing(name);
+		if (used.length) {
+			return fail(409, {
+				message: `${name} is used by ${used.length} budget cell${used.length > 1 ? 's' : ''} (${used
+					.slice(0, 3)
+					.map((u) => `${u.category} in ${u.month}`)
+					.join(', ')}${used.length > 3 ? '…' : ''}). Clear those first.`
+			});
+		}
+
+		deleteVariable(name);
 		return { ok: true };
 	},
 
