@@ -2,7 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { money } from '$lib/money.ts';
 	import Money from '$lib/components/Money.svelte';
-	import { monthLabel } from '$lib/dates.ts';
+	import { monthLabel, monthShort } from '$lib/dates.ts';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -84,20 +84,68 @@
 				<input type="hidden" name="month" value={data.grid.month} />
 				<button class="btn" type="submit">Copy last month</button>
 			</form>
-			<form method="POST" action="?/saveAsTemplate" use:enhance>
-				<input type="hidden" name="month" value={data.grid.month} />
-				<button class="btn" type="submit">Save as master</button>
-			</form>
+			{#if data.hasTemplate}
+				<!-- Discards this month's figures, so it confirms first. Everything
+				     else on this page is a single reversible edit; this is not. -->
+				<form
+					method="POST"
+					action="?/applyTemplate"
+					use:enhance={({ cancel }) => {
+						if (!confirm(`Replace ${monthName} with your master budget? Its current figures are discarded.`))
+							cancel();
+						return async ({ update }) => update({ reset: false });
+					}}
+				>
+					<input type="hidden" name="month" value={data.grid.month} />
+					<button class="btn" type="submit">Reset to master</button>
+				</form>
+			{/if}
 			<a class="btn" href="/budget?month={data.templateMonth}">Master budget</a>
 		{/if}
 	</div>
 </header>
+
+{#if form?.cleared !== undefined}
+	<p class="hint seeded-note">
+		{form.cleared
+			? `Cleared ${form.cleared} future ${form.cleared === 1 ? 'month' : 'months'}.`
+			: 'There were no future months to clear.'}
+	</p>
+{/if}
+
+{#if data.futureMonths.length}
+	<div class="hint future-note">
+		<span>
+			{data.futureMonths.length} future {data.futureMonths.length === 1 ? 'month has' : 'months have'}
+			a budget ({data.futureMonths.slice(0, 4).map(monthShort).join(', ')}{data.futureMonths.length > 4
+				? '…'
+				: ''}).
+			Browsing forward creates them.
+		</span>
+		<form
+			method="POST"
+			action="?/clearFuture"
+			use:enhance={({ cancel }) => {
+				if (!confirm(`Clear the budget for ${data.futureMonths.length} future month(s)? Past and current months are untouched.`))
+					cancel();
+				return async ({ update }) => update({ reset: false });
+			}}
+		>
+			<button class="linkish" type="submit">Clear them</button>
+		</form>
+	</div>
+{/if}
 
 {#if data.template}
 	<p class="hint template-note">
 		This sheet is not a month. It is the standing budget that any month you have not yet touched
 		inherits, and what the <a href="/forecast">forecast</a> projects from. Actual and Left are blank
 		here because there is nothing to compare against — only column B applies.
+	</p>
+{:else if form?.applied}
+	<p class="hint seeded-note">
+		Reset {monthName} to your master budget ({form.applied}
+		{form.applied === 1 ? 'row' : 'rows'}).
 	</p>
 {:else if data.seeded}
 	<p class="hint seeded-note">
@@ -283,6 +331,31 @@
 
 	.seeded-note {
 		border-left-color: var(--verdigris);
+	}
+
+	.future-note {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem 1rem;
+		padding-left: 0.7rem;
+		border-left: 2px solid var(--brass);
+	}
+
+	.linkish {
+		background: none;
+		border: 0;
+		padding: 0;
+		color: var(--slate);
+		font-size: 0.8125rem;
+		cursor: pointer;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	.linkish:hover {
+		color: var(--iron);
 	}
 
 	.hint {
