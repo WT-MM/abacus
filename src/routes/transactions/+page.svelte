@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { goto } from '$app/navigation';
 	import Money from '$lib/components/Money.svelte';
-	import { dayLabelWithYear } from '$lib/dates.ts';
+	import { dayLabelWithYear, monthLabel } from '$lib/dates.ts';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -10,13 +11,47 @@
 
 	const dayOf = dayLabelWithYear;
 
-	function pageHref(n: number) {
+	/** Current filters, optionally overridden, as a query string. */
+	function query(overrides: Record<string, string> = {}) {
+		const merged = {
+			q: data.filters.q,
+			category: data.filters.categoryId,
+			account: data.filters.accountId,
+			month: data.filters.month,
+			...overrides
+		};
 		const p = new URLSearchParams();
-		if (data.filters.q) p.set('q', data.filters.q);
-		if (data.filters.categoryId) p.set('category', data.filters.categoryId);
-		if (data.filters.accountId) p.set('account', data.filters.accountId);
-		if (n > 1) p.set('page', String(n));
-		return `/transactions${p.size ? `?${p}` : ''}`;
+		for (const [k, v] of Object.entries(merged)) if (v) p.set(k, v);
+		return p.size ? `?${p}` : '';
+	}
+
+	const pageHref = (n: number) => `/transactions${query({ page: n > 1 ? String(n) : '' })}`;
+
+	const hasFilters = $derived(
+		Boolean(data.filters.q || data.filters.categoryId || data.filters.accountId || data.filters.month)
+	);
+
+	let debounce: ReturnType<typeof setTimeout> | undefined;
+
+	/**
+	 * Navigates as the filters change, so nothing has to be submitted.
+	 *
+	 * `keepFocus` matters more than it looks: without it the text field loses
+	 * focus on the first keystroke and typing stops dead. `replaceState` keeps a
+	 * search from filling the history with one entry per character. Changing a
+	 * filter also drops the page number, or narrowing while on page 4 lands on an
+	 * empty result that reads as "no matches".
+	 */
+	function applyFilters(overrides: Record<string, string>, wait = 0) {
+		clearTimeout(debounce);
+		const go = () =>
+			goto(`/transactions${query({ ...overrides, page: '' })}`, {
+				keepFocus: true,
+				noScroll: true,
+				replaceState: true
+			});
+		if (wait) debounce = setTimeout(go, wait);
+		else go();
 	}
 </script>
 
@@ -29,16 +64,24 @@
 	</div>
 </header>
 
-<form method="GET" class="filters card">
-	<input name="q" value={data.filters.q} placeholder="Search description or merchant" />
-	<select name="category">
+<!-- Still a GET form, so it works without JavaScript; with it, the handlers
+     below navigate as you go and the submit button is never needed. -->
+<form method="GET" class="filters card" onsubmit={(e) => e.preventDefault()}>
+	<input
+		name="q"
+		value={data.filters.q}
+		placeholder="Search description or merchant"
+		autocomplete="off"
+		oninput={(e) => applyFilters({ q: e.currentTarget.value }, 250)}
+	/>
+	<select name="category" onchange={(e) => applyFilters({ category: e.currentTarget.value })}>
 		<option value="">All categories</option>
 		<option value="none" selected={data.filters.categoryId === 'none'}>Uncategorised</option>
 		{#each data.categories as c (c.id)}
 			<option value={c.id} selected={String(c.id) === data.filters.categoryId}>{c.name}</option>
 		{/each}
 	</select>
-	<select name="account">
+	<select name="account" onchange={(e) => applyFilters({ account: e.currentTarget.value })}>
 		<option value="">All accounts</option>
 		{#each data.accounts as a (a.id)}
 			<option value={a.id} selected={String(a.id) === data.filters.accountId}>
@@ -46,8 +89,27 @@
 			</option>
 		{/each}
 	</select>
-	<button class="btn" type="submit">Filter</button>
+	<input
+		name="month"
+		type="month"
+		value={data.filters.month}
+		aria-label="Month"
+		onchange={(e) => applyFilters({ month: e.currentTarget.value })}
+	/>
+	{#if hasFilters}
+		<a class="btn" href="/transactions">Clear</a>
+	{/if}
 </form>
+
+{#if hasFilters}
+	<p class="matched">
+		<span>
+			{data.total.toLocaleString()} matching
+			{#if data.filters.month}in {monthLabel(data.filters.month)}{/if}
+		</span>
+		<Money cents={data.matchedCents} signed />
+	</p>
+{/if}
 
 {#if form?.applied !== undefined}
 	<p class="banner" role="status">Rule saved and applied to {form.applied} transactions.</p>
@@ -152,8 +214,27 @@
 		margin-bottom: 1rem;
 	}
 
-	.filters input {
+	.filters input[name='q'] {
 		flex: 1 1 14rem;
+	}
+
+	.filters input[name='month'] {
+		flex: 0 0 auto;
+	}
+
+	/* The total of everything matching, so a figure drilled into from the budget
+	   can actually be reconciled against the rows behind it. */
+	.matched {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 1rem;
+		margin-bottom: 1rem;
+		padding: 0.5rem 0.85rem;
+		background: var(--surface);
+		border-left: 2px solid var(--verdigris);
+		font-size: 0.875rem;
+		color: var(--slate);
 	}
 
 	.banner {

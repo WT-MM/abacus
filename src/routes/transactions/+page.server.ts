@@ -45,6 +45,14 @@ export const load: PageServerLoad = async ({ url }) => {
 		args.push(Number(accountId));
 	}
 
+	// Lets a budget row link straight to the transactions behind its Actual
+	// figure, which is otherwise a number with no way to check it.
+	const month = url.searchParams.get('month');
+	if (month && /^\d{4}-\d{2}$/.test(month)) {
+		where.push('substr(t.posted_on, 1, 7) = ?');
+		args.push(month);
+	}
+
 	const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
 	const rows = db()
@@ -70,7 +78,19 @@ export const load: PageServerLoad = async ({ url }) => {
 		total: n,
 		page,
 		pageSize: PAGE_SIZE,
-		filters: { q, categoryId: categoryId ?? '', accountId: accountId ?? '' },
+		filters: {
+			q,
+			categoryId: categoryId ?? '',
+			accountId: accountId ?? '',
+			month: month && /^\d{4}-\d{2}$/.test(month) ? month : ''
+		},
+		// The sum of everything matching, not just this page — otherwise drilling
+		// into a budget row shows rows that cannot be reconciled against it.
+		matchedCents: (
+			db()
+				.prepare(`SELECT IFNULL(SUM(t.amount_cents), 0) AS total FROM transactions t ${clause}`)
+				.get(...args) as { total: number }
+		).total,
 		categories: db()
 			.prepare(`SELECT id, name, kind FROM categories WHERE archived = 0 ORDER BY sort, id`)
 			.all() as CategoryRow[],

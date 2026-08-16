@@ -155,7 +155,21 @@
 							{/if}
 						</td>
 
-						<td class="r"><Money cents={row.actualCents} exact={false} /></td>
+						<td class="r">
+							<!-- An Actual figure with no way to see what is behind it is just a
+							     number to be trusted. This links to exactly those rows. -->
+							{#if row.actualCents !== 0}
+								<a
+									class="drill"
+									href="/transactions?category={row.categoryId}&month={data.grid.month}"
+									title="Show these transactions"
+								>
+									<Money cents={row.actualCents} exact={false} />
+								</a>
+							{:else}
+								<Money cents={row.actualCents} exact={false} />
+							{/if}
+						</td>
 						<td class="r">
 							<Money cents={row.remainingCents} exact={false} signed invert={row.kind === 'income'} />
 						</td>
@@ -345,6 +359,18 @@
 		background: var(--surface);
 		border-color: var(--verdigris);
 		outline: none;
+	}
+
+	/* Underlined only on hover: a whole column of permanently underlined figures
+	   would fight the tabular alignment this sheet depends on. */
+	.drill {
+		color: inherit;
+		text-decoration: none;
+		border-bottom: 1px solid transparent;
+	}
+
+	.drill:hover {
+		border-bottom-color: var(--verdigris);
 	}
 
 	/* A quiet mark that this cell holds a formula rather than a typed number. */
