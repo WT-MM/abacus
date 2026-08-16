@@ -98,6 +98,21 @@ function repair(conn: DatabaseSync): void {
 			.run();
 		mark('transfer-flag-follows-category');
 	}
+
+	// The mirror of the above, and the more damaging direction: a row flagged as
+	// a transfer while sitting in an income or expense category is hidden from
+	// every total. That could happen when a transfer was recategorised back into
+	// spending, because the flag did not move with the category.
+	if (!done('clear-stale-transfer-flags')) {
+		conn
+			.prepare(
+				`UPDATE transactions SET is_transfer = 0
+				  WHERE is_transfer = 1
+				    AND category_id IN (SELECT id FROM categories WHERE kind <> 'transfer')`
+			)
+			.run();
+		mark('clear-stale-transfer-flags');
+	}
 }
 
 /** Wrap a unit of work in a transaction; rolls back on any throw. */

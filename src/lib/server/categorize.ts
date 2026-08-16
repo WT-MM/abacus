@@ -10,6 +10,10 @@ const PFC_MAP: Record<string, string> = {
 	INCOME: 'Other Income',
 	TRANSFER_IN: 'Transfer',
 	TRANSFER_OUT: 'Transfer',
+	// Borrowing is neither income nor spending; the repayment is the expense.
+	// Unmapped, money arriving would land in an expense category as negative
+	// spending. (Plaid's v2 taxonomy only.)
+	LOAN_DISBURSEMENTS: 'Transfer',
 	LOAN_PAYMENTS: 'Fees & Interest',
 	BANK_FEES: 'Fees & Interest',
 	ENTERTAINMENT: 'Entertainment',
@@ -39,11 +43,27 @@ const DETAILED_MAP: Record<string, string> = {
 	// on credit. Note this cannot be done at the LOAN_PAYMENTS level: a mortgage
 	// or car payment genuinely does leave the household.
 	LOAN_PAYMENTS_CREDIT_CARD_PAYMENT: 'Transfer',
+
+	// Plaid's TRANSFER_* primaries do not mean "between this owner's accounts".
+	// Cash out of an ATM is spending that cannot be tracked further, and a
+	// deposit is money arriving from outside. Excluding either as an internal
+	// transfer loses it entirely.
+	//
+	// Peer-to-peer app transfers are deliberately left as transfers: money to and
+	// from friends is usually settling up rather than earning or spending, and a
+	// wrong guess is easy to correct per-transaction now that recategorising
+	// updates the transfer flag too.
+	TRANSFER_OUT_WITHDRAWAL: 'Uncategorised',
+	TRANSFER_IN_DEPOSIT: 'Other Income',
 	// Wages are the only thing that should reach the Salary row, because that row
 	// is what a person reads as "my paycheck". Anything else Plaid calls income
 	// lands in Other Income, where an unexpected amount is noticed rather than
 	// quietly inflating salary.
+	// Both taxonomy spellings. Plaid renamed this between v1 and v2, and teams
+	// created from December 2025 get v2 — so a single name silently stops
+	// matching and every paycheck quietly becomes Other Income.
 	INCOME_WAGES: 'Salary',
+	INCOME_SALARY: 'Salary',
 	INCOME_DIVIDENDS: 'Interest & Dividends',
 	INCOME_INTEREST_EARNED: 'Interest & Dividends',
 	INCOME_TAX_REFUND: 'Other Income',

@@ -22,6 +22,41 @@ export type ItemRow = {
 const TOKEN_AAD = 'plaid.access_token';
 
 /**
+ * Investment subtypes that are real cash income, and real costs.
+ *
+ * Everything else Plaid reports on a brokerage — buys, sells, transfers — just
+ * moves money the owner already has, and is flagged as a transfer. Fees and tax
+ * are not: they leave the household and belong in spending, and treating the
+ * whole non-dividend remainder as a transfer hid them entirely.
+ */
+const INVESTMENT_INCOME = new Set([
+	'dividend',
+	'qualified dividend',
+	'non-qualified dividend',
+	'interest',
+	'interest receivable',
+	'long-term capital gain',
+	'short-term capital gain'
+]);
+
+const INVESTMENT_COSTS = new Set([
+	'account fee',
+	'fund fee',
+	'legal fee',
+	'management fee',
+	'margin expense',
+	'miscellaneous fee',
+	'transfer fee',
+	'trust fee',
+	'tax',
+	'tax withheld',
+	'non-resident tax'
+]);
+
+const investmentCostCategory = (subtype: string) =>
+	subtype.includes('tax') ? 'Taxes' : 'Fees & Interest';
+
+/**
  * Stand-in name recorded when an Item is linked. The link step writes the token
  * before naming the institution, so that a transient failure cannot strand a
  * token whose Item slot has already been spent; the name is backfilled here on
@@ -129,6 +164,11 @@ function writeTransaction(accountId: number, t: PlaidTransaction): void {
 			   description  = excluded.description,
 			   merchant     = excluded.merchant,
 			   pending      = excluded.pending,
+			   plaid_category = excluded.plaid_category,
+			   -- Kept in step with the category, or a Plaid correction that moves a
+			   -- row into or out of a transfer leaves the flag saying the opposite.
+			   is_transfer  = CASE WHEN transactions.category_locked = 1
+			                       THEN transactions.is_transfer ELSE excluded.is_transfer END,
 			   -- A hand-set category is never overwritten by a later sync.
 			   category_id  = CASE WHEN transactions.category_locked = 1
 			                       THEN transactions.category_id ELSE excluded.category_id END`
@@ -271,7 +311,11 @@ async function syncInvestments(item: ItemRow, token: string, accountIds: Map<str
 			for (const it of res.investment_transactions) {
 				const accountId = accountIds.get(it.account_id);
 				if (!accountId) continue;
-				const income = it.subtype === 'dividend' || it.subtype === 'interest';
+				// Only actual cash income and genuine costs leave the investment
+				// bucket. Everything else — buys, sells, transfers in and out — moves
+				// money the owner already has and is not spending.
+				const income = INVESTMENT_INCOME.has(it.subtype);
+				const cost = INVESTMENT_COSTS.has(it.subtype);
 				db()
 					.prepare(
 						`INSERT INTO transactions (account_id, source, external_id, dedupe_hash, posted_on,
@@ -290,8 +334,10 @@ async function syncInvestments(item: ItemRow, token: string, accountIds: Map<str
 						-Math.round(it.amount * 100),
 						it.name,
 						`investment.${it.subtype}`,
-						categoryId(income ? 'Interest & Dividends' : 'Investment'),
-						income ? 0 : 1
+						categoryId(
+							income ? 'Interest & Dividends' : cost ? investmentCostCategory(it.subtype) : 'Investment'
+						),
+						income || cost ? 0 : 1
 					);
 				touched++;
 			}
