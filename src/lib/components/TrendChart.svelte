@@ -80,10 +80,15 @@
 	</svg>
 
 	<figcaption>
-		<span class="key">
-			<i class="swatch swatch-ink"></i>
-			{actual.length ? `${actual[0].label} — ${actual[actual.length - 1].label}` : 'No history yet'}
-		</span>
+		<!-- The observed key is omitted entirely on a projection-only chart;
+		     announcing "no history" would imply something is missing when the
+		     chart was never meant to show any. -->
+		{#if actual.length}
+			<span class="key">
+				<i class="swatch swatch-ink"></i>
+				{actual[0].label} — {actual[actual.length - 1].label}
+			</span>
+		{/if}
 		{#if projected.length}
 			<span class="key">
 				<i class="swatch swatch-brass"></i>
