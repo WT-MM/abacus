@@ -164,6 +164,59 @@ export function buildGrid(month: string, lookback = MAX_LOOKBACK): BudgetGrid {
 	};
 }
 
+export type TrailingAverages = {
+	incomeCents: number;
+	expenseCents: number;
+	/** Complete months that actually contained data. Zero means no history. */
+	monthsUsed: number;
+};
+
+/**
+ * Average monthly income and spending over the last complete months.
+ *
+ * This is what a projection should run on, and it deliberately excludes the
+ * current month. A partial month understates both sides — and unevenly, since
+ * a mid-month snapshot may contain one paycheck but half a month of groceries.
+ *
+ * Crucially, income and expense are drawn from the *same* basis. Reading
+ * spending from observed data while reading income from the budget sheet makes
+ * every projection trend downwards until the sheet is filled in, which says
+ * nothing about the person's actual finances.
+ */
+export function trailingMonthlyAverages(month: string, lookback = 3): TrailingAverages {
+	const rows = db()
+		.prepare(
+			`SELECT substr(t.posted_on, 1, 7) AS ym, c.kind AS kind, SUM(t.amount_cents) AS total
+			   FROM transactions t
+			   JOIN categories c ON c.id = t.category_id
+			  WHERE t.is_transfer = 0
+			    AND substr(t.posted_on, 1, 7) >= ?
+			    AND substr(t.posted_on, 1, 7) < ?
+			  GROUP BY ym, kind`
+		)
+		.all(shiftMonth(month, -lookback), month) as Array<{ ym: string; kind: string; total: number }>;
+
+	const months = new Set<string>();
+	let income = 0;
+	let expense = 0;
+
+	for (const r of rows) {
+		months.add(r.ym);
+		// Expenses are stored negative; the forecast wants a positive magnitude.
+		if (r.kind === 'expense') expense += -r.total;
+		else if (r.kind === 'income') income += r.total;
+	}
+
+	const monthsUsed = months.size;
+	if (!monthsUsed) return { incomeCents: 0, expenseCents: 0, monthsUsed: 0 };
+
+	return {
+		incomeCents: Math.round(income / monthsUsed),
+		expenseCents: Math.round(expense / monthsUsed),
+		monthsUsed
+	};
+}
+
 export function setCell(month: string, categoryId: number, formula: string): void {
 	const raw = formula.trim();
 	if (!raw) {

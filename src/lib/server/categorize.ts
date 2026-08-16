@@ -3,7 +3,11 @@ import { db } from './db.ts';
 // Plaid's personal_finance_category taxonomy mapped onto the default sheet.
 // Anything unmapped lands in Uncategorised rather than being silently dropped.
 const PFC_MAP: Record<string, string> = {
-	INCOME: 'Salary',
+	// Only the detailed wage categories become Salary (see DETAILED_MAP). Plaid's
+	// INCOME primary also covers tax refunds, unemployment and its own
+	// catch-all, so mapping the primary straight to Salary meant a refund — or a
+	// transfer from a friend that Plaid could not classify — read as a paycheck.
+	INCOME: 'Other Income',
 	TRANSFER_IN: 'Transfer',
 	TRANSFER_OUT: 'Transfer',
 	LOAN_PAYMENTS: 'Fees & Interest',
@@ -11,7 +15,11 @@ const PFC_MAP: Record<string, string> = {
 	ENTERTAINMENT: 'Entertainment',
 	FOOD_AND_DRINK: 'Dining',
 	GENERAL_MERCHANDISE: 'Shopping',
-	HOME_IMPROVEMENT: 'Housing',
+	// "Housing" is a group heading in the sheet, not a category, so this used to
+	// resolve to nothing — and a transaction with no category is dropped by the
+	// inner join in actuals(), making every hardware-store purchase invisible in
+	// the budget while still showing in the transaction list.
+	HOME_IMPROVEMENT: 'Shopping',
 	MEDICAL: 'Health',
 	PERSONAL_CARE: 'Health',
 	GENERAL_SERVICES: 'Shopping',
@@ -26,8 +34,17 @@ const DETAILED_MAP: Record<string, string> = {
 	FOOD_AND_DRINK_GROCERIES: 'Groceries',
 	RENT_AND_UTILITIES_RENT: 'Rent & Mortgage',
 	LOAN_PAYMENTS_MORTGAGE_PAYMENT: 'Rent & Mortgage',
+	// Wages are the only thing that should reach the Salary row, because that row
+	// is what a person reads as "my paycheck". Anything else Plaid calls income
+	// lands in Other Income, where an unexpected amount is noticed rather than
+	// quietly inflating salary.
+	INCOME_WAGES: 'Salary',
 	INCOME_DIVIDENDS: 'Interest & Dividends',
 	INCOME_INTEREST_EARNED: 'Interest & Dividends',
+	INCOME_TAX_REFUND: 'Other Income',
+	INCOME_UNEMPLOYMENT: 'Other Income',
+	INCOME_RETIREMENT_PENSION: 'Other Income',
+	INCOME_OTHER_INCOME: 'Other Income',
 	GENERAL_SERVICES_SUBSCRIPTION: 'Subscriptions',
 	ENTERTAINMENT_STREAMING: 'Subscriptions'
 };
@@ -67,9 +84,15 @@ export function classify(input: {
 		if (matches(haystack, rule.pattern)) return rule.category_id;
 	}
 
-	if (input.detailed && DETAILED_MAP[input.detailed]) return categoryId(DETAILED_MAP[input.detailed]);
-	if (input.primary && PFC_MAP[input.primary]) return categoryId(PFC_MAP[input.primary]);
-	return categoryId('Uncategorised');
+	// Falls through to Uncategorised if a mapped name does not resolve. A null
+	// category is not a harmless "unknown": actuals() inner-joins categories, so
+	// the transaction vanishes from every budget total while still appearing in
+	// the transaction list — which is how a broken mapping stays hidden.
+	const mapped =
+		(input.detailed ? DETAILED_MAP[input.detailed] : undefined) ??
+		(input.primary ? PFC_MAP[input.primary] : undefined);
+
+	return (mapped ? categoryId(mapped) : null) ?? categoryId('Uncategorised');
 }
 
 function matches(haystack: string, pattern: string): boolean {

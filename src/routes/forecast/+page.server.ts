@@ -2,7 +2,7 @@ import { fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { setMeta } from '$lib/server/db.ts';
 import { currentPosition, netWorthHistory } from '$lib/server/networth.ts';
-import { buildGrid, monthKey } from '$lib/server/budget.ts';
+import { buildGrid, monthKey, trailingMonthlyAverages } from '$lib/server/budget.ts';
 import { project, monthsToTarget, DEFAULT_ASSUMPTIONS } from '$lib/forecast.ts';
 import { loadAssumptions } from '$lib/server/assumptions.ts';
 import { monthShort as label } from '$lib/dates.ts';
@@ -15,8 +15,17 @@ export const load: PageServerLoad = async ({ url }) => {
 	const grid = buildGrid(month);
 	const assumptions = loadAssumptions();
 
-	const income = grid.totals.income;
-	const expense = grid.totals.projectedExpense || grid.totals.expense;
+	// Both figures come from one basis. Previously income read the budget sheet
+	// while spending read observed data, so an unfilled sheet produced a
+	// guaranteed decline no matter what the person actually earned.
+	const trailing = trailingMonthlyAverages(month);
+	const usingHistory = trailing.monthsUsed > 0;
+
+	const income = usingHistory ? trailing.incomeCents : grid.totals.income;
+	const expense = usingHistory
+		? trailing.expenseCents
+		: grid.totals.projectedExpense || grid.totals.expense;
+
 	const points = project(position, month, HORIZON, income, expense, assumptions);
 
 	const target = Number(url.searchParams.get('target') ?? 0) * 100;
@@ -32,6 +41,9 @@ export const load: PageServerLoad = async ({ url }) => {
 		},
 		monthlyIncomeCents: income,
 		monthlyExpenseCents: expense,
+		// Surfaced so the page can say where its numbers came from. A projection
+		// whose inputs are unexplained invites more trust than it has earned.
+		basis: { source: usingHistory ? 'history' : 'budget', monthsUsed: trailing.monthsUsed },
 		history: netWorthHistory(12),
 		chart: points.map((p) => ({ label: label(p.month), value: p.netWorthCents })),
 		// One row a year keeps a five-year horizon readable.
