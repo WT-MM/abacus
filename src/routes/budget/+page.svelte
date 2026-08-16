@@ -87,6 +87,7 @@
 <p class="hint">
 	Type a number, or a formula starting with <code>=</code>. Cells can reference each other:
 	<code>=SUM(B4:B9)</code>, <code>=B[Rent]*1.05</code>, <code>=PREV()</code> for this row last month.
+	Named values from <a href="/settings">Settings</a> work too — <code>=avg_meal_cost*20</code>.
 </p>
 
 {#if form?.message}

@@ -1,5 +1,6 @@
 import { db } from './db.ts';
 import { safeEvaluateRow, type CellContext } from '../budget/formula.ts';
+import { variableMap } from './variables.ts';
 
 export type BudgetRow = {
 	row: number;
@@ -121,13 +122,18 @@ export function buildGrid(month: string, lookback = MAX_LOOKBACK): BudgetGrid {
 		return (prevGrid.rows[row - 1]?.budgetCents ?? 0) / 100;
 	};
 
+	// Read once per grid rather than per cell: a sheet of formulas would
+	// otherwise hit the database for every reference.
+	const variables = variableMap();
+
 	const ctx: CellContext = {
 		rowCount: cats.length,
 		rowByName: (name) => byName.get(name.toLowerCase()),
 		rawBudget: (row) => cells.get(cats[row - 1]?.id) ?? '',
 		actual: actualOf,
 		projected: (row) => projectedCents(actual.get(cats[row - 1]?.id), month) / 100,
-		prevBudget: prevOf
+		prevBudget: prevOf,
+		variable: (name) => variables.get(name)
 	};
 
 	const rows: BudgetRow[] = cats.map((c, i) => {
