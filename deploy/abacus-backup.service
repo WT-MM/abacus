@@ -1,0 +1,50 @@
+[Unit]
+Description=Abacus nightly database backup
+Documentation=https://github.com/WT-MM/abacus
+RequiresMountsFor=/var/lib/abacus
+
+# Edit to name the backup destination if it is on its own mount, so a run
+# cannot silently write into an empty mountpoint while the disk is absent.
+# RequiresMountsFor=/mnt/backups
+
+StartLimitBurst=3
+StartLimitIntervalSec=3600
+
+[Service]
+Type=oneshot
+User=abacus
+Group=abacus
+WorkingDirectory=/opt/abacus
+
+Environment=NODE_ENV=production
+Environment=ABACUS_DB=/var/lib/abacus/abacus.db
+
+# Point this at a filesystem that is not the one holding the database. A copy
+# beside the original survives a bad DELETE, not a dead disk.
+Environment=ABACUS_BACKUP_DIR=/var/backups/abacus
+Environment=ABACUS_BACKUP_KEEP=14
+
+# Optional: a copy of the key kept off this host. The backup does not contain
+# it — storing both together would mean one stolen archive gives up the data
+# and the means to decrypt the Plaid tokens. Setting this makes the job verify
+# the escrowed key still matches, so it cannot go stale unnoticed.
+# Environment=ABACUS_KEY_BACKUP=/mnt/backups/abacus-key.env
+
+EnvironmentFile=/etc/abacus/secrets.env
+
+ExecStart=/usr/bin/node scripts/backup.ts
+
+# 78 is EX_CONFIG — a missing destination or a stale key escrow. Retrying
+# cannot fix either, so fail visibly instead of looping.
+Restart=on-failure
+RestartSec=120
+RestartPreventExitStatus=78
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/abacus /var/backups/abacus
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=Back up the Abacus database nightly
+Documentation=https://github.com/WT-MM/abacus
+
+[Timer]
+# After the 06:30 sync, so the day's data is included.
+OnCalendar=*-*-* 07:30
+RandomizedDelaySec=600
+
+# Runs on the next boot if the machine was off at 07:30. A backup schedule that
+# quietly skips days is the kind that is discovered during a restore.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

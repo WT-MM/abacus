@@ -238,13 +238,32 @@ sudo sed -i "s|^ExecStart=/usr/bin/node|ExecStart=$NODE_BIN|" \
 #   /opt/abacus/deploy/abacus-sync.service
 ```
 
+**If `ABACUS_DB` is on a separate mount** (an array, an external disk), set
+`RequiresMountsFor=` in each unit to that path. Otherwise the service can start
+before the disk is present. The app refuses to create a missing database
+directory rather than opening an empty database that the real one would later
+be hidden behind — but the ordering is what prevents the situation.
+
 ```sh
 sudo cp /opt/abacus/deploy/abacus.service \
         /opt/abacus/deploy/abacus-sync.service \
-        /opt/abacus/deploy/abacus-sync.timer /etc/systemd/system/
+        /opt/abacus/deploy/abacus-sync.timer \
+        /opt/abacus/deploy/abacus-backup.service \
+        /opt/abacus/deploy/abacus-backup.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now abacus.service abacus-sync.timer
+sudo systemctl enable --now abacus.service abacus-sync.timer abacus-backup.timer
 ```
+
+`enable` is what provides start-on-boot. Confirm it:
+
+```sh
+systemctl is-enabled abacus abacus-sync.timer abacus-backup.timer   # all "enabled"
+```
+
+Before enabling the backup timer, set `ABACUS_BACKUP_DIR` in
+`abacus-backup.service` to a filesystem that is **not** the one holding the
+database, and create it (`sudo install -d -o abacus -g abacus <dir>`). Add that
+path to `ReadWritePaths=` in the same unit if you change it from the default.
 
 ## Step 8 — Verify before declaring anything
 
@@ -335,6 +354,9 @@ taken at each sync and cannot be backfilled.
 | Service exits with "Refusing to start: HOST is …" | The loopback guard. `HOST=127.0.0.1` is missing from the unit. Fix the unit; never the guard. |
 | Service exits with "must decode to 32 bytes" | `ABACUS_ENCRYPTION_KEY` is empty or truncated. Regenerate it. |
 | Service exits with "does not match the key this database was created with" | The key changed after the database was created. **Restore the original key.** Do not relink institutions to work around this — relinking permanently consumes Plaid Item slots. |
+| Service exits with "Refusing to create it" | The database directory is missing, which usually means a mount has not come up. Fix `RequiresMountsFor=`; do not just `mkdir` it, or you will create an empty database that hides the real one. |
+| Unit is `failed` and did not restart | Deliberate. Exit 78 (bad config) and 65 (an institution needs reconnecting) are excluded from restart, because neither changes on retry. `systemctl status` names the cause. |
+| Backup logs "same filesystem as the database" every night | `ABACUS_BACKUP_DIR` is on the same disk as the data. That is not a backup against disk failure. Move it, or set `ABACUS_BACKUP_SAME_DEVICE_OK=1` to accept it. |
 | Owner request returns 404 | `ABACUS_OWNERS` does not exactly match the Tailscale login. |
 | Every form POST rejected as cross-site | `ORIGIN` does not match the URL the browser is using. |
 | Passkey registration fails with an opaque error | `ABACUS_ORIGIN` wrong, so the WebAuthn RP ID is wrong. |

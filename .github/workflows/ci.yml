@@ -65,21 +65,26 @@ jobs:
           set -euo pipefail
           good=$(node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))")
 
+          # Exit 78 is EX_CONFIG, and abacus.service keys RestartPreventExitStatus
+          # off it. Asserting the exact code — not merely "non-zero" — is the
+          # point: if a config failure ever exited 1 instead, systemd would treat
+          # it as a crash and restart it three times before giving up, burying
+          # the reason in a restart loop.
           expect_refusal() {
             local label="$1" want="$2"; shift 2
             set +e
             env "$@" timeout 25 node build/index.js > guard.log 2>&1
             local code=$?
             set -e
-            if [ "$code" -eq 0 ]; then
-              echo "::error::$label — process exited 0; it should have refused to start"; cat guard.log; exit 1
-            fi
             if [ "$code" -eq 124 ]; then
               echo "::error::$label — process kept running; it should have refused to start"; cat guard.log; exit 1
             fi
+            if [ "$code" -ne 78 ]; then
+              echo "::error::$label — exited $code, expected 78 (EX_CONFIG)"; cat guard.log; exit 1
+            fi
             grep -q "$want" guard.log || {
-              echo "::error::$label — exited $code but without the expected message"; cat guard.log; exit 1; }
-            echo "ok: $label (exit $code)"
+              echo "::error::$label — exited 78 but without the expected message"; cat guard.log; exit 1; }
+            echo "ok: $label (exit 78)"
           }
 
           expect_refusal "public bind" "Refusing to start" \
@@ -88,6 +93,24 @@ jobs:
             ABACUS_DB=/tmp/g2.db HOST=127.0.0.1 PORT=3102
           expect_refusal "short key" "must decode to 32 bytes" \
             ABACUS_DB=/tmp/g3.db ABACUS_ENCRYPTION_KEY=dG9vLXNob3J0 HOST=127.0.0.1 PORT=3103
+          # A database directory that does not exist usually means a mount has
+          # not come up. Creating it would open an empty database that shadows
+          # the real one once the disk arrives.
+          expect_refusal "absent database directory" "Refusing to create it" \
+            ABACUS_DB=/no/such/mount/abacus.db ABACUS_ENCRYPTION_KEY="$good" HOST=127.0.0.1 PORT=3104
+
+      - name: launchd retry wrapper honours its policy
+        run: |
+          set -euo pipefail
+          w=deploy/macos/run-with-retry.sh
+          chmod +x "$w"
+          runs() { ABACUS_RETRY_DELAY=0 "$w" sh -c "echo RUN; exit $1" 2>/dev/null | grep -c '^RUN$' || true; }
+
+          [ "$(runs 1)"  = "3" ] || { echo "::error::transient failure should retry 3 times"; exit 1; }
+          [ "$(runs 78)" = "1" ] || { echo "::error::EX_CONFIG must not be retried"; exit 1; }
+          [ "$(runs 65)" = "1" ] || { echo "::error::EX_DATAERR must not be retried"; exit 1; }
+          [ "$(runs 0)"  = "1" ] || { echo "::error::success should run once"; exit 1; }
+          echo "ok: retry policy"
 
       # A key of the right shape but the wrong value passes length validation
       # while leaving every stored Plaid token undecryptable. The natural

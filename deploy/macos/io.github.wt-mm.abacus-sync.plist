@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Daily Plaid sync on macOS, the counterpart to abacus-sync.timer.
+
+  StartCalendarInterval fires at 06:30. Unlike systemd's Persistent=true, a run
+  missed because the machine was asleep is NOT made up on wake unless the Mac
+  wakes for it — launchd coalesces missed calendar events at most once. If the
+  machine sleeps overnight, add a `pmset repeat wakeorpoweron` entry, or accept
+  that the sync happens on the next wake.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>io.github.wt-mm.abacus-sync</string>
+
+	<key>UserName</key>
+	<string>_abacus</string>
+
+	<key>WorkingDirectory</key>
+	<string>/opt/abacus</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/abacus/deploy/macos/run-with-retry.sh</string>
+		<string>/usr/local/bin/node</string>
+		<string>scripts/sync.ts</string>
+	</array>
+
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>6</integer>
+		<key>Minute</key>
+		<integer>30</integer>
+	</dict>
+
+	<!-- A scheduled job must not be restarted on exit; the wrapper handles
+	     retries within a single run. -->
+	<key>RunAtLoad</key>
+	<false/>
+
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>NODE_ENV</key>
+		<string>production</string>
+		<key>ABACUS_DB</key>
+		<string>/usr/local/var/abacus/abacus.db</string>
+		<key>ABACUS_ENV_FILE</key>
+		<string>/usr/local/etc/abacus/secrets.env</string>
+		<!-- Retries here are minutes apart, not seconds: a Plaid outage does not
+		     clear in five seconds. -->
+		<key>ABACUS_RETRY_DELAY</key>
+		<string>300</string>
+	</dict>
+
+	<key>StandardOutPath</key>
+	<string>/usr/local/var/log/abacus-sync.log</string>
+	<key>StandardErrorPath</key>
+	<string>/usr/local/var/log/abacus-sync.log</string>
+</dict>
+</plist>
