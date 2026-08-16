@@ -222,10 +222,17 @@ export function trailingMonthlyAverages(month: string, lookback = 3): TrailingAv
 	let expense = 0;
 
 	for (const r of rows) {
-		months.add(r.ym);
-		// Expenses are stored negative; the forecast wants a positive magnitude.
-		if (r.kind === 'expense') expense += -r.total;
-		else if (r.kind === 'income') income += r.total;
+		// Only months with income or spending count towards the divisor. A month
+		// holding nothing but transfers contributes zero to both sums, so counting
+		// it would dilute the averages towards zero.
+		if (r.kind === 'expense') {
+			months.add(r.ym);
+			// Expenses are stored negative; the forecast wants a positive magnitude.
+			expense += -r.total;
+		} else if (r.kind === 'income') {
+			months.add(r.ym);
+			income += r.total;
+		}
 	}
 
 	const monthsUsed = months.size;

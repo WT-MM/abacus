@@ -1,6 +1,7 @@
 import { fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { db } from '$lib/server/db.ts';
+import { isTransferCategory } from '$lib/server/categorize.ts';
 
 const PAGE_SIZE = 100;
 
@@ -110,10 +111,13 @@ export const actions: Actions = {
 		if (!Number.isInteger(id)) return fail(400, { message: 'Bad request' });
 		if (categoryId !== null && !Number.isInteger(categoryId)) return fail(400, { message: 'Bad request' });
 
-		// Locking it stops the next sync from reverting the choice to Plaid's guess.
+		// The flag moves with the category. Left behind, filing a transfer back as
+		// an expense would keep is_transfer = 1 and hide that spending for good.
 		db()
-			.prepare('UPDATE transactions SET category_id = ?, category_locked = 1 WHERE id = ?')
-			.run(categoryId, id);
+			.prepare(
+				'UPDATE transactions SET category_id = ?, category_locked = 1, is_transfer = ? WHERE id = ?'
+			)
+			.run(categoryId, isTransferCategory(categoryId) ? 1 : 0, id);
 		return { ok: true };
 	},
 
@@ -128,11 +132,16 @@ export const actions: Actions = {
 		// Apply immediately to anything not hand-categorised.
 		const { changes } = db()
 			.prepare(
-				`UPDATE transactions SET category_id = ?
+				`UPDATE transactions SET category_id = ?, is_transfer = ?
 				  WHERE category_locked = 0
 				    AND (LOWER(description) LIKE ? OR LOWER(IFNULL(merchant,'')) LIKE ?)`
 			)
-			.run(categoryId, `%${pattern.toLowerCase()}%`, `%${pattern.toLowerCase()}%`);
+			.run(
+				categoryId,
+				isTransferCategory(categoryId) ? 1 : 0,
+				`%${pattern.toLowerCase()}%`,
+				`%${pattern.toLowerCase()}%`
+			);
 
 		return { ok: true, applied: Number(changes) };
 	}

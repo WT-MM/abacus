@@ -1,6 +1,6 @@
 import { db, tx } from '../db.ts';
 import { sha256 } from '../crypto.ts';
-import { classify } from '../categorize.ts';
+import { classify, isTransferCategory } from '../categorize.ts';
 import { parseCsv } from './csv.ts';
 import { parseOfx } from './ofx.ts';
 
@@ -185,12 +185,13 @@ export function importRows(accountId: number, rows: ParsedRow[]): ImportResult {
 		);
 		const insert = conn.prepare(
 			`INSERT INTO transactions (account_id, source, dedupe_hash, posted_on, amount_cents,
-			                           description, plaid_category, category_id)
-			 VALUES (?, 'import', ?, ?, ?, ?, ?, ?)`
+			                           description, plaid_category, category_id, is_transfer)
+			 VALUES (?, 'import', ?, ?, ?, ?, ?, ?, ?)`
 		);
 
 		for (const row of rows) {
 			const hash = dedupeHash(row);
+			const category = classify({ description: row.description });
 			if (exists.get(accountId, hash)) {
 				duplicates++;
 				continue;
@@ -206,7 +207,10 @@ export function importRows(accountId: number, rows: ParsedRow[]): ImportResult {
 				row.amountCents,
 				row.description,
 				row.sourceCategory ?? null,
-				classify({ description: row.description })
+				category,
+				// Imported rows never set this, so a rule routing one to Transfer
+				// left it counted as spending.
+				isTransferCategory(category) ? 1 : 0
 			);
 			inserted++;
 		}
