@@ -25,7 +25,19 @@
 
 <p class="caveat">
 	Everything on this page is modelled, not measured — it is drawn in brass throughout. It assumes
-	your current budget holds and returns are steady, which is exactly the assumption reality breaks.
+	the pattern below repeats and returns are steady, which is exactly the assumption reality breaks.
+</p>
+
+<p class="basis">
+	{#if data.basis.source === 'history'}
+		Income and spending are averaged over the last {data.basis.monthsUsed}
+		complete {data.basis.monthsUsed === 1 ? 'month' : 'months'} of real transactions. The current
+		month is excluded — it is only part-way through, and a half month holds a whole rent payment
+		but only half the groceries.
+	{:else}
+		No complete month of transactions yet, so these come from your budget sheet. They will switch
+		to observed averages once a full month has synced.
+	{/if}
 </p>
 
 <section class="card panel">
@@ -144,9 +156,18 @@
 
 	.caveat {
 		max-width: 60ch;
-		margin-bottom: 1.25rem;
+		margin-bottom: 0.6rem;
 		color: var(--slate);
 		font-size: 0.875rem;
+	}
+
+	.basis {
+		max-width: 60ch;
+		margin-bottom: 1.25rem;
+		padding-left: 0.7rem;
+		border-left: 2px solid var(--brass);
+		color: var(--slate);
+		font-size: 0.8125rem;
 	}
 
 	.panel {

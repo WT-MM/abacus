@@ -16,12 +16,18 @@ export function monthLabel(month: string): string {
 	});
 }
 
-/** "2026-08" → "Aug 26", for axis ticks and dense tables. */
+/**
+ * "2026-08" → "Aug 2026", for axis ticks and dense tables.
+ *
+ * The year is spelled out because a two-digit one collides with a day of the
+ * month: a five-year projection ending in "Aug 31" reads as the 31st of August,
+ * not August 2031. Four characters of width is a cheap price for that.
+ */
 export function monthShort(month: string): string {
 	return new Date(`${month}-01T00:00:00Z`).toLocaleDateString('en-US', {
 		...UTC,
 		month: 'short',
-		year: '2-digit'
+		year: 'numeric'
 	});
 }
 
