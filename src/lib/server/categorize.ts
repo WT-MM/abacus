@@ -45,23 +45,15 @@ const DETAILED_MAP: Record<string, string> = {
 	LOAN_PAYMENTS_CREDIT_CARD_PAYMENT: 'Transfer',
 
 	// Plaid's TRANSFER_* primaries do not mean "between this owner's accounts".
-	// Cash out of an ATM is spending that cannot be tracked further, and a
-	// deposit is money arriving from outside. Excluding either as an internal
-	// transfer loses it entirely.
-	//
-	// Peer-to-peer app transfers are deliberately left as transfers: money to and
-	// from friends is usually settling up rather than earning or spending, and a
-	// wrong guess is easy to correct per-transaction now that recategorising
-	// updates the transfer flag too.
+	// Cash out of an ATM is untrackable spending and a deposit is money from
+	// outside; excluding either loses it entirely. Peer-to-peer app transfers
+	// stay excluded on purpose — money to and from friends is usually settling
+	// up — and are correctable per-transaction.
 	TRANSFER_OUT_WITHDRAWAL: 'Uncategorised',
 	TRANSFER_IN_DEPOSIT: 'Other Income',
-	// Wages are the only thing that should reach the Salary row, because that row
-	// is what a person reads as "my paycheck". Anything else Plaid calls income
-	// lands in Other Income, where an unexpected amount is noticed rather than
-	// quietly inflating salary.
-	// Both taxonomy spellings. Plaid renamed this between v1 and v2, and teams
-	// created from December 2025 get v2 — so a single name silently stops
-	// matching and every paycheck quietly becomes Other Income.
+	// Only wages reach Salary; anything else Plaid calls income goes to Other
+	// Income, where an unexpected amount gets noticed. Both spellings, because
+	// Plaid renamed this in v2 and teams created from December 2025 get v2.
 	INCOME_WAGES: 'Salary',
 	INCOME_SALARY: 'Salary',
 	INCOME_DIVIDENDS: 'Interest & Dividends',
@@ -133,8 +125,7 @@ export function classify(input: {
 
 	// Falls through to Uncategorised if a mapped name does not resolve. A null
 	// category is not a harmless "unknown": actuals() inner-joins categories, so
-	// the transaction vanishes from every budget total while still appearing in
-	// the transaction list — which is how a broken mapping stays hidden.
+	// the row vanishes from every total while still showing in the list.
 	const mapped =
 		(input.detailed ? DETAILED_MAP[input.detailed] : undefined) ??
 		(input.primary ? PFC_MAP[input.primary] : undefined);

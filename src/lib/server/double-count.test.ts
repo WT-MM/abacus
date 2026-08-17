@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { newTempDb, removeTempDb, type TempDb } from './test-support.ts';
 
 /**
  * Money moving between your own accounts must never read as spending.
@@ -11,7 +9,7 @@ import { join } from 'node:path';
  * much of it went on the card — which for most people is most of it.
  */
 
-let dir: string;
+let tmp: TempDb;
 let budget: typeof import('./budget.ts');
 let classify: typeof import('./categorize.ts').classify;
 let isTransferCategory: typeof import('./categorize.ts').isTransferCategory;
@@ -20,9 +18,7 @@ let conn: import('node:sqlite').DatabaseSync;
 const MONTH = '2026-08';
 
 beforeEach(async () => {
-	dir = mkdtempSync(join(tmpdir(), 'abacus-dbl-'));
-	process.env.ABACUS_ENV_FILE = '/nonexistent';
-	process.env.ABACUS_DB = join(dir, 'test.db');
+	tmp = newTempDb('abacus-dbl-');
 	vi.resetModules();
 
 	const dbmod = await import('./db.ts');
@@ -39,7 +35,7 @@ beforeEach(async () => {
 	);
 });
 
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => removeTempDb(tmp));
 
 /** Mirrors what sync.ts writes for a Plaid transaction. */
 function ingest(opts: {
@@ -76,6 +72,31 @@ function ingest(opts: {
 		);
 }
 
+/**
+ * A card payoff, as Plaid reports it: a debit on checking and a matching credit
+ * on the card. `checking only` models the legs landing in different months.
+ */
+function payOffCard(day: string, legs: 'both' | 'checking only', amount = 500) {
+	ingest({
+		account: 1,
+		amount,
+		name: 'CHASE CREDIT CRD AUTOPAY',
+		primary: 'LOAN_PAYMENTS',
+		detailed: 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
+		day
+	});
+	if (legs === 'both') {
+		ingest({
+			account: 2,
+			amount: -amount,
+			name: 'AUTOMATIC PAYMENT - THANK YOU',
+			primary: 'LOAN_PAYMENTS',
+			detailed: 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
+			day
+		});
+	}
+}
+
 const totalSpending = () =>
 	budget
 		.buildGrid(MONTH)
@@ -105,42 +126,16 @@ describe('paying off a credit card', () => {
 		});
 
 		// Both sides of paying the card off: out of checking, into the card.
-		ingest({
-			account: 1,
-			amount: 500,
-			name: 'CHASE CREDIT CRD AUTOPAY',
-			primary: 'LOAN_PAYMENTS',
-			detailed: 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
-			day: `${MONTH}-20`
-		});
-		ingest({
-			account: 2,
-			amount: -500,
-			name: 'AUTOMATIC PAYMENT - THANK YOU',
-			primary: 'LOAN_PAYMENTS',
-			detailed: 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
-			day: `${MONTH}-20`
-		});
+		payOffCard(`${MONTH}-20`, 'both');
 
 		// Still 500 spent, not 1,000 and not 1,500.
 		expect(totalSpending()).toBe(50_000);
 	});
 
 	it('does not rely on the two sides cancelling out', () => {
-		// Both legs land in "Fees & Interest" with opposite signs, so when they
-		// fall in the same month they net to zero and the total looks right by
-		// accident. They do not always fall in the same month: a payment posts to
-		// checking on the 31st and to the card on the 1st. Then one month is
-		// overstated by the payment and the next understated by it.
-		ingest({
-			account: 1,
-			amount: 500,
-			name: 'CHASE CREDIT CRD AUTOPAY',
-			primary: 'LOAN_PAYMENTS',
-			detailed: 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
-			day: `${MONTH}-31`
-		});
-		// The card side posts next month, so it cannot cancel this one.
+		// Opposite signs in one category net to zero, so the same-month case looks
+		// right by accident. Straddle a month end and it stops being an accident.
+		payOffCard(`${MONTH}-31`, 'checking only');
 		expect(totalSpending()).toBe(0);
 	});
 

@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 // Daily sync, run by the systemd timer and by the "Sync now" button.
 //
-// This runs as its own process on purpose: node:sqlite is synchronous, so
-// doing this work inside the web server would block every other request for
-// the duration of the run.
-//
-// Node 26 strips the types natively, so there is no build step here.
+// Its own process on purpose: node:sqlite is synchronous, so running this
+// inside the web server would block every other request for its duration.
+// Node 26 strips the types, so there is no build step.
 
 import { loadEnv } from './env.ts';
 

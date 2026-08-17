@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { newTempDb, removeTempDb, type TempDb } from './test-support.ts';
 import { SCHEMA } from './schema.ts';
 
 /**
@@ -10,11 +8,10 @@ import { SCHEMA } from './schema.ts';
  * against rows written the old way rather than through the current ingest.
  */
 
-let dir: string;
-let path: string;
+let tmp: TempDb;
 
 function seedLegacyRows() {
-	const db = new DatabaseSync(path);
+	const db = new DatabaseSync(tmp.path);
 	db.exec(SCHEMA);
 
 	// Categories, as db() would have seeded them.
@@ -52,7 +49,7 @@ function seedLegacyRows() {
 }
 
 const rows = () => {
-	const db = new DatabaseSync(path, { readOnly: true });
+	const db = new DatabaseSync(tmp.path, { readOnly: true });
 	const out = db
 		.prepare(
 			`SELECT t.dedupe_hash AS id, c.name AS category, t.is_transfer
@@ -64,15 +61,12 @@ const rows = () => {
 };
 
 beforeEach(() => {
-	dir = mkdtempSync(join(tmpdir(), 'abacus-repair-'));
-	path = join(dir, 'test.db');
-	process.env.ABACUS_ENV_FILE = '/nonexistent';
-	process.env.ABACUS_DB = path;
+	tmp = newTempDb('abacus-repair-');
 	seedLegacyRows();
 	vi.resetModules();
 });
 
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => removeTempDb(tmp));
 
 describe('opening an existing database', () => {
 	it.each([
@@ -92,7 +86,7 @@ describe('opening an existing database', () => {
 		db();
 
 		// Recategorise the repaired row by hand, then reopen.
-		const edit = new DatabaseSync(path);
+		const edit = new DatabaseSync(tmp.path);
 		const groceries = (
 			edit.prepare(`SELECT id FROM categories WHERE name = 'Groceries'`).get() as { id: number }
 		).id;

@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { newTempDb, removeTempDb, type TempDb } from './test-support.ts';
 
 /**
  * category_id and is_transfer must never disagree.
@@ -11,7 +9,7 @@ import { join } from 'node:path';
  * between the owner's own accounts as spending. Both are silent.
  */
 
-let dir: string;
+let tmp: TempDb;
 let budget: typeof import('./budget.ts');
 let cat: typeof import('./categorize.ts');
 let conn: import('node:sqlite').DatabaseSync;
@@ -19,9 +17,7 @@ let conn: import('node:sqlite').DatabaseSync;
 const MONTH = '2026-08';
 
 beforeEach(async () => {
-	dir = mkdtempSync(join(tmpdir(), 'abacus-xfer-'));
-	process.env.ABACUS_ENV_FILE = '/nonexistent';
-	process.env.ABACUS_DB = join(dir, 'test.db');
+	tmp = newTempDb('abacus-xfer-');
 	vi.resetModules();
 
 	const dbmod = await import('./db.ts');
@@ -33,7 +29,7 @@ beforeEach(async () => {
 	);
 });
 
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => removeTempDb(tmp));
 
 const nameOf = (id: number | null) =>
 	id === null

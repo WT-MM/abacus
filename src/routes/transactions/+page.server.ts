@@ -48,12 +48,9 @@ export const load: PageServerLoad = async ({ url }) => {
 
 	// Lets a budget row link straight to the transactions behind its Actual
 	// figure, which is otherwise a number with no way to check it.
-	// A card payment sitting in a spending category double-counts whatever was
-	// bought on the card. The repair fixes these automatically, but skips rows
-	// categorised by hand — deliberately, since a manual choice should stand.
-	// The consequence is that half of a payment pair can be corrected while the
-	// other half is not, which is worse than leaving both: the remaining leg
-	// becomes negative spending. So they are surfaced rather than left silent.
+	// The repair skips rows categorised by hand, so half of a payment pair can be
+	// corrected while the other is not — leaving the remaining leg as negative
+	// spending, which is worse than the double count. Surfaced, not left silent.
 	const strandedCardPayments = (
 		db()
 			.prepare(

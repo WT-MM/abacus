@@ -11,13 +11,10 @@ export function db(): DatabaseSync {
 
 	const dir = dirname(config.dbPath);
 
-	// In production the directory must already exist. Creating it would be worse
-	// than failing: if the database lives on a mounted array and the service
-	// starts before the mount lands, mkdir would create the path on the
-	// underlying root filesystem and SQLite would open a brand-new empty
-	// database there. That reads as total data loss, and the real database is
-	// then silently shadowed once the array mounts. The unit's
-	// RequiresMountsFor= should prevent it; this is the backstop.
+	// In production the directory must already exist. If the database lives on a
+	// mount that has not come up, creating it would open an empty database on the
+	// bare mountpoint — which reads as total data loss, and then shadows the real
+	// one. The unit's RequiresMountsFor= should prevent it; this is the backstop.
 	if (config.isProd) {
 		if (!existsSync(dir)) {
 			throw new Error(
@@ -57,12 +54,9 @@ export function db(): DatabaseSync {
 /**
  * One-time corrections to data already on disk.
  *
- * Written as raw SQL rather than going through categorize.ts, which imports
- * this module — routing it that way would make an import cycle.
- *
- * Each repair records itself in meta so it runs once. They are cheap and
- * idempotent, but re-running them would undo any hand-categorisation made
- * afterwards, which is why they are gated rather than run every boot.
+ * Raw SQL rather than via categorize.ts, which imports this module. Each repair
+ * records itself so it runs once: re-running would undo hand-categorisation
+ * made afterwards.
  */
 function repair(conn: DatabaseSync): void {
 	const done = (key: string) =>
@@ -70,15 +64,11 @@ function repair(conn: DatabaseSync): void {
 	const mark = (key: string) =>
 		conn.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(`repair.${key}`, 'done');
 
-	// Credit-card payoffs were classified as spending, so everything bought on
-	// credit was counted twice: once at the till and once when the card was
-	// paid. Rows categorised by hand are left alone.
-	//
-	// Matched with LIKE rather than an exact name. Plaid has two taxonomy
-	// versions in the wild and the exact string differs between them; an exact
-	// match that misses simply does nothing, silently, and the repair would look
-	// like it had run. A new marker so a database that already ran the narrower
-	// version gets this one too.
+	// Card payoffs were classified as spending, so anything bought on credit
+	// counted twice. LIKE rather than an exact name: Plaid has two taxonomy
+	// versions and an exact match that misses does nothing, silently, while
+	// still recording itself as done. New marker so a database that ran the
+	// narrower version gets this one too. Hand-categorised rows are left alone.
 	if (!done('card-payments-are-transfers-v2')) {
 		conn
 			.prepare(

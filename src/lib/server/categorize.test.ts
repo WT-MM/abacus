@@ -1,21 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { newTempDb, removeTempDb, type TempDb } from './test-support.ts';
 
 /**
  * Classification against a real database, because a mapping only means
  * anything once it resolves to a category row that actually exists.
  */
 
-let dir: string;
+let tmp: TempDb;
 let classify: typeof import('./categorize.ts').classify;
 let nameOf: (id: number | null) => string | null;
 
 beforeAll(async () => {
-	dir = mkdtempSync(join(tmpdir(), 'abacus-cat-'));
-	process.env.ABACUS_ENV_FILE = '/nonexistent';
-	process.env.ABACUS_DB = join(dir, 'test.db');
+	tmp = newTempDb('abacus-cat-');
 
 	vi.resetModules();
 	const dbmod = await import('./db.ts');
@@ -28,7 +24,7 @@ beforeAll(async () => {
 			: ((conn.prepare('SELECT name FROM categories WHERE id = ?').get(id) as { name: string }).name);
 });
 
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+afterAll(() => removeTempDb(tmp));
 
 const of = (primary: string, detailed?: string) =>
 	nameOf(classify({ description: 'ACH DEPOSIT', primary, detailed: detailed ?? null }));
