@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { newTempDb, removeTempDb, type TempDb } from './test-support.ts';
 
 /**
  * The forecast's inputs.
@@ -12,14 +10,12 @@ import { join } from 'node:path';
  * to ruin regardless of what the person actually earned.
  */
 
-let dir: string;
+let tmp: TempDb;
 let mod: typeof import('./budget.ts');
 let conn: import('node:sqlite').DatabaseSync;
 
 async function boot() {
-	dir = mkdtempSync(join(tmpdir(), 'abacus-trailing-'));
-	process.env.ABACUS_ENV_FILE = '/nonexistent';
-	process.env.ABACUS_DB = join(dir, 'test.db');
+	tmp = newTempDb('abacus-trailing-');
 
 	vi.resetModules();
 	const dbmod = await import('./db.ts');
@@ -43,7 +39,7 @@ function txn(date: string, amount: number, category: string, isTransfer = 0) {
 }
 
 beforeEach(boot);
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => removeTempDb(tmp));
 
 describe('trailingMonthlyAverages', () => {
 	it('reports no history for an empty database', () => {

@@ -1,17 +1,9 @@
 #!/bin/sh
-# Retry policy for launchd, which has no equivalent of systemd's
-# StartLimitBurst or RestartPreventExitStatus.
-#
-# launchd is configured with KeepAlive={SuccessfulExit:false}, meaning it
-# restarts the job whenever it exits non-zero — for ever, with no cap. So the
-# policy lives here instead: this wrapper exits 0 to tell launchd to stop, and
-# non-zero only while it still wants to be restarted.
-#
-# The trade-off is that a job which has given up shows a last exit status of 0
-# in `launchctl list`, so the log is the place to look. On Linux the systemd
-# units express all of this natively and leave the unit in a failed state,
-# which is why Ubuntu is the recommended target.
-#
+# Retry policy for launchd, which has no StartLimitBurst or
+# RestartPreventExitStatus. KeepAlive={SuccessfulExit:false} restarts on any
+# non-zero exit for ever, so the cap lives here: exiting 0 tells launchd to
+# stop. A job that gave up therefore reports exit 0 to `launchctl list`; the
+# log is the place to look. Details in deploy/README.md.
 #   usage: run-with-retry.sh <command> [args...]
 
 set -u

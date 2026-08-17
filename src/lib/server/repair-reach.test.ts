@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { newTempDb, removeTempDb, type TempDb } from './test-support.ts';
 import { SCHEMA } from './schema.ts';
 
 /**
@@ -13,12 +11,11 @@ import { SCHEMA } from './schema.ts';
  * have run — the marker gets written either way.
  */
 
-let dir: string;
-let path: string;
+let tmp: TempDb;
 
 /** A database as it would be before the repair, with no markers. */
 function legacy(rows: Array<{ id: string; plaidCategory: string | null; category: string; locked: 0 | 1 }>) {
-	const db = new DatabaseSync(path);
+	const db = new DatabaseSync(tmp.path);
 	db.exec(SCHEMA);
 	for (const [name, kind] of [
 		['Fees & Interest', 'expense'],
@@ -44,7 +41,7 @@ function legacy(rows: Array<{ id: string; plaidCategory: string | null; category
 }
 
 const categoryOf = (id: string) => {
-	const db = new DatabaseSync(path, { readOnly: true });
+	const db = new DatabaseSync(tmp.path, { readOnly: true });
 	const row = db
 		.prepare(
 			`SELECT c.name AS category, t.is_transfer FROM transactions t
@@ -56,14 +53,11 @@ const categoryOf = (id: string) => {
 };
 
 beforeEach(() => {
-	dir = mkdtempSync(join(tmpdir(), 'abacus-reach-'));
-	path = join(dir, 'test.db');
-	process.env.ABACUS_ENV_FILE = '/nonexistent';
-	process.env.ABACUS_DB = path;
+	tmp = newTempDb('abacus-reach-');
 	vi.resetModules();
 });
 
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => removeTempDb(tmp));
 
 describe('the repair reaches both taxonomy spellings', () => {
 	it.each([
@@ -92,7 +86,7 @@ describe('the repair reaches both taxonomy spellings', () => {
 		legacy([
 			{ id: 'missed', plaidCategory: 'PERSONAL_LOAN_PAYMENTS_CREDIT_CARD_PAYMENT', category: 'Fees & Interest', locked: 0 }
 		]);
-		const pre = new DatabaseSync(path);
+		const pre = new DatabaseSync(tmp.path);
 		pre.prepare(`INSERT INTO meta (key, value) VALUES ('repair.card-payments-are-transfers', 'done')`).run();
 		pre.close();
 

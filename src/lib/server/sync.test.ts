@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { newTempDb, removeTempDb, type TempDb } from './test-support.ts';
 
 /**
  * Drives the real syncAll() against a stubbed Plaid.
@@ -59,10 +57,17 @@ const TXNS = [
 	}
 ];
 
-function plaidStub(overrides: Record<string, unknown> = {}) {
+/**
+ * A canned Plaid response, or an error one. `__httpStatus` is an explicit
+ * marker because Plaid's own /item/get body contains a top-level `status`
+ * field — keying off that would misread a perfectly normal response.
+ */
+type StubResponse = object | { __httpStatus: number; __body: unknown };
+
+function plaidStub(overrides: Partial<Record<string, StubResponse>> = {}) {
 	const calls: string[] = [];
 
-	const bodies: Record<string, unknown> = {
+	const bodies: Partial<Record<string, StubResponse>> = {
 		'/item/get': {
 			item: {
 				item_id: 'item-1',
@@ -109,11 +114,6 @@ function plaidStub(overrides: Record<string, unknown> = {}) {
 		calls.push(path);
 		const body = bodies[path];
 		if (body === undefined) throw new Error(`unstubbed Plaid endpoint ${path}`);
-		// An override may carry an explicit HTTP status, which is how a Plaid
-		// error response (and therefore a PlaidError) is simulated.
-		// The marker is deliberately unambiguous: Plaid's own /item/get response
-		// contains a top-level `status` field, so keying off that would misread a
-		// perfectly normal body as an HTTP status.
 		const error = body as { __httpStatus?: number; __body?: unknown };
 		return error?.__httpStatus
 			? new Response(JSON.stringify(error.__body), { status: error.__httpStatus })
@@ -123,12 +123,10 @@ function plaidStub(overrides: Record<string, unknown> = {}) {
 	return calls;
 }
 
-let dir: string;
+let tmp: TempDb;
 
 async function bootWithLinkedItem() {
-	dir = mkdtempSync(join(tmpdir(), 'abacus-sync-'));
-	process.env.ABACUS_ENV_FILE = '/nonexistent';
-	process.env.ABACUS_DB = join(dir, 'test.db');
+	tmp = newTempDb('abacus-sync-');
 	process.env.ABACUS_ENCRYPTION_KEY = KEY;
 	process.env.PLAID_CLIENT_ID = 'test-client';
 	process.env.PLAID_SECRET = 'test-secret';
@@ -155,7 +153,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.unstubAllGlobals();
-	if (dir) rmSync(dir, { recursive: true, force: true });
+	removeTempDb(tmp);
 });
 
 describe('syncAll', () => {

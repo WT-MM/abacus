@@ -1,17 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { newTempDb, removeTempDb, type TempDb } from './test-support.ts';
 
-let dir: string;
+let tmp: TempDb;
 let mod: typeof import('./variables.ts');
 let budget: typeof import('./budget.ts');
 let conn: import('node:sqlite').DatabaseSync;
 
 beforeEach(async () => {
-	dir = mkdtempSync(join(tmpdir(), 'abacus-vars-'));
-	process.env.ABACUS_ENV_FILE = '/nonexistent';
-	process.env.ABACUS_DB = join(dir, 'test.db');
+	tmp = newTempDb('abacus-vars-');
 	vi.resetModules();
 	const dbmod = await import('./db.ts');
 	mod = await import('./variables.ts');
@@ -19,7 +15,7 @@ beforeEach(async () => {
 	conn = dbmod.db();
 });
 
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => removeTempDb(tmp));
 
 const idOf = (name: string) =>
 	(conn.prepare('SELECT id FROM categories WHERE name = ?').get(name) as { id: number }).id;

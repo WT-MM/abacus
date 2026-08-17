@@ -1,16 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { newTempDb, removeTempDb, type TempDb } from './test-support.ts';
 
-let dir: string;
+let tmp: TempDb;
 let mod: typeof import('./portfolio.ts');
 let conn: import('node:sqlite').DatabaseSync;
 
 async function boot() {
-	dir = mkdtempSync(join(tmpdir(), 'abacus-pf-'));
-	process.env.ABACUS_ENV_FILE = '/nonexistent';
-	process.env.ABACUS_DB = join(dir, 'test.db');
+	tmp = newTempDb('abacus-pf-');
 
 	vi.resetModules();
 	const dbmod = await import('./db.ts');
@@ -37,7 +33,7 @@ function holding(accountId: number, symbol: string, qty: number, value: number, 
 }
 
 beforeEach(boot);
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => removeTempDb(tmp));
 
 describe('portfolio', () => {
 	it('is empty without holdings', () => {

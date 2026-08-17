@@ -40,7 +40,7 @@ export class PlaidError extends Error {
 	}
 }
 
-async function call<T>(path: string, body: Record<string, unknown>): Promise<T> {
+async function call<T>(path: string, body: object): Promise<T> {
 	if (!plaidConfigured()) throw new Error('Plaid is not configured. Set PLAID_CLIENT_ID and PLAID_SECRET.');
 
 	const res = await fetch(`${HOSTS[config.plaid.env]}${path}`, {
@@ -132,6 +132,22 @@ export type ItemStatus = {
 	status?: { transactions?: { last_successful_update: string | null } };
 };
 
+// -------------------------------------------------------------- requests
+
+type LinkTokenRequest = {
+	user: { client_user_id: string };
+	client_name: string;
+	country_codes: string[];
+	language: string;
+	redirect_uri: string;
+	access_token?: string;
+	update?: { account_selection_enabled: boolean };
+	products?: string[];
+	optional_products?: string[];
+};
+
+type SyncRequest = { access_token: string; count: number; cursor?: string };
+
 // --------------------------------------------------------------- endpoints
 
 /**
@@ -144,7 +160,7 @@ export function createLinkToken(opts: {
 	accessToken?: string;
 	redirectUri: string;
 }): Promise<{ link_token: string; expiration: string }> {
-	const body: Record<string, unknown> = {
+	const base = {
 		user: { client_user_id: opts.userId },
 		client_name: 'Abacus',
 		country_codes: ['US'],
@@ -152,15 +168,18 @@ export function createLinkToken(opts: {
 		redirect_uri: opts.redirectUri
 	};
 
-	if (opts.accessToken) {
-		body.access_token = opts.accessToken;
-		body.update = { account_selection_enabled: true };
-	} else {
-		body.products = ['transactions'];
-		// Investments is requested opportunistically; brokerages that do not
-		// expose it still link successfully for transactions.
-		body.optional_products = ['investments'];
-	}
+	// Update mode repairs an existing Item and must not name products; a fresh
+	// link must. Building the two shapes separately keeps that exclusive rather
+	// than relying on which keys happen to have been assigned.
+	const body: LinkTokenRequest = opts.accessToken
+		? { ...base, access_token: opts.accessToken, update: { account_selection_enabled: true } }
+		: {
+				...base,
+				products: ['transactions'],
+				// Investments is requested opportunistically; brokerages that do not
+				// expose it still link successfully for transactions.
+				optional_products: ['investments']
+			};
 
 	return call('/link/token/create', body);
 }
@@ -194,7 +213,9 @@ export type SyncPage = {
 };
 
 export function syncTransactions(accessToken: string, cursor: string | null): Promise<SyncPage> {
-	const body: Record<string, unknown> = { access_token: accessToken, count: 500 };
+	const body: SyncRequest = { access_token: accessToken, count: 500 };
+	// Omitted rather than sent as null on the first call: Plaid treats a missing
+	// cursor as "from the beginning".
 	if (cursor) body.cursor = cursor;
 	return call('/transactions/sync', body);
 }
